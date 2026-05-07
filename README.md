@@ -101,6 +101,11 @@ MapFanSim.exe
 
 [MapFanSim-windows-x64.zip](https://gitee.com/qssec/map/raw/master/artifacts/MapFanSim-windows-x64.zip)
 
+源码仓库：
+
+- 码云：[https://gitee.com/qssec/map](https://gitee.com/qssec/map)
+- GitHub：[https://github.com/qq1371989309-prog/map-.git](https://github.com/qq1371989309-prog/map-.git)
+
 ## 配置说明
 
 默认配置文件：
