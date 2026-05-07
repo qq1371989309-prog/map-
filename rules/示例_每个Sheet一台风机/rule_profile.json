@@ -1,0 +1,42 @@
+{
+  "profileVersion": 1,
+  "windFarmName": "示例_每个Sheet一台风机",
+  "description": "示例：XLS/XLSX 每个工作表是一台风机，地址在指定列。",
+  "deviceMapFormat": {
+    "type": "sheet_as_fan",
+    "comment": "sheet_as_fan 表示 Sheet 名就是风机名，地址从每个 Sheet 的 addressColumn 读取。",
+    "sheetNames": [
+      "*"
+    ],
+    "headerRows": 1,
+    "fanColumn": 0,
+    "addressColumn": 0,
+    "addressStartColumn": 1,
+    "skipIfRowContains": [
+      "IEMP"
+    ]
+  },
+  "mapParser": {
+    "comment": "MAP 匹配规则。默认 key=第3列值+第4列值+第5列地址，固定匹配值为1和3，只替换第1列。",
+    "delimiter": ",",
+    "keyColumnIndexes": [
+      2,
+      3
+    ],
+    "keyFixedValues": [
+      "1",
+      "3"
+    ],
+    "addressColumnIndex": 4,
+    "replaceColumnIndex": 0,
+    "skipTerms": [
+      "IEMP"
+    ]
+  },
+  "extraRules": {
+    "enabled": true,
+    "file": "extra_rules.txt",
+    "replaceColumnIndex": 0,
+    "lineNumberBase": 1
+  }
+}

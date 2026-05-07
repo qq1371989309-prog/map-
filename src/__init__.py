@@ -1,0 +1,2 @@
+"""MapFanSim desktop application package."""
+

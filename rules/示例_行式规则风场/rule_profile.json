@@ -1,0 +1,42 @@
+{
+  "profileVersion": 1,
+  "windFarmName": "示例_行式规则风场",
+  "description": "示例：规则表不是“风机一行多个地址”，而是每行一个地址：风机名,地址。",
+  "deviceMapFormat": {
+    "type": "fan_address_rows",
+    "comment": "每行一个地址。比如：F1-01FJ,0；F1-01FJ,2；F1-02FJ,382。",
+    "sheetNames": [
+      "*"
+    ],
+    "headerRows": 1,
+    "fanColumn": 0,
+    "addressColumn": 1,
+    "addressStartColumn": 1,
+    "skipIfRowContains": [
+      "IEMP"
+    ]
+  },
+  "mapParser": {
+    "comment": "MAP 匹配规则。默认 key=第3列值+第4列值+第5列地址，固定匹配值为1和3，只替换第1列。",
+    "delimiter": ",",
+    "keyColumnIndexes": [
+      2,
+      3
+    ],
+    "keyFixedValues": [
+      "1",
+      "3"
+    ],
+    "addressColumnIndex": 4,
+    "replaceColumnIndex": 0,
+    "skipTerms": [
+      "IEMP"
+    ]
+  },
+  "extraRules": {
+    "enabled": true,
+    "file": "extra_rules.txt",
+    "replaceColumnIndex": 0,
+    "lineNumberBase": 1
+  }
+}

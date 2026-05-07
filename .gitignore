@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+env/
+
+# PyInstaller
+build/
+dist/
+*.spec
+发布成品/
+鍙戝竷鎴愬搧/
+release/
+
+# Runtime data generated on site
+logs/*
+download/*
+update/*
+backup/*
+output_maps/*
+reports/*
+input_maps/*
+tools/*
+
+# Keep runtime folders in the repository
+!logs/.gitkeep
+!download/.gitkeep
+!update/.gitkeep
+!backup/.gitkeep
+!output_maps/.gitkeep
+!reports/.gitkeep
+!input_maps/.gitkeep
+!tools/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local secrets / overrides
+data/config.local.json
+*.log

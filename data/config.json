@@ -1,0 +1,18 @@
+{
+  "remoteMode": "builtin_sftp",
+  "host": "192.168.149.222",
+  "port": 60022,
+  "username": "root",
+  "password": "",
+  "remoteDir": "/opt/goldwind/LEAP2/cfg",
+  "remoteFile": "slaverMB_1.map",
+  "hostKey": "",
+  "winscpDir": "E:\\WinSCP",
+  "flashfxpDir": "E:\\FlashFXP",
+  "omtgDir": "E:\\OMTG",
+  "terminalDir": "",
+  "localMapPath": "",
+  "targetMapPath": "",
+  "excludeIemp": true,
+  "mapFileMode": "text"
+}

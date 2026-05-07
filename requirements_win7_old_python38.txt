@@ -1,0 +1,5 @@
+# Legacy build dependencies for Python 3.8 environments.
+pyinstaller==5.13.2
+paramiko==3.4.0
+openpyxl==3.1.2
+xlrd==1.2.0

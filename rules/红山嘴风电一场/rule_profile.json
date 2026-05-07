@@ -1,0 +1,42 @@
+{
+  "profileVersion": 1,
+  "windFarmName": "红山嘴风电一场",
+  "description": "默认规则模板：兼容红山嘴风电一场和前面 HTA 最后版逻辑。一个风场一个规则模板，后续其他风场结构变化只改本文件。",
+  "deviceMapFormat": {
+    "type": "fan_address_list",
+    "comment": "每行：风机名,地址1,地址2,...。列号从0开始。",
+    "sheetNames": [
+      "*"
+    ],
+    "headerRows": 0,
+    "fanColumn": 0,
+    "addressStartColumn": 1,
+    "addressColumn": 1,
+    "skipIfRowContains": [
+      "IEMP"
+    ]
+  },
+  "mapParser": {
+    "comment": "MAP 匹配规则。默认 key=第3列值+第4列值+第5列地址，固定匹配值为1和3，只替换第1列。",
+    "delimiter": ",",
+    "keyColumnIndexes": [
+      2,
+      3
+    ],
+    "keyFixedValues": [
+      "1",
+      "3"
+    ],
+    "addressColumnIndex": 4,
+    "replaceColumnIndex": 0,
+    "skipTerms": [
+      "IEMP"
+    ]
+  },
+  "extraRules": {
+    "enabled": true,
+    "file": "extra_rules.txt",
+    "replaceColumnIndex": 0,
+    "lineNumberBase": 1
+  }
+}
