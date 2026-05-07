@@ -32,6 +32,7 @@ import sys
 import threading
 import time
 import traceback
+import webbrowser
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
@@ -42,7 +43,8 @@ from tkinter import ttk, filedialog, messagebox
 APP_NAME = "MapFanSim"
 APP_TITLE = "MapFanSim 全场风机 MAP 仿真工具"
 APP_VERSION = "V8-HTA-LikeLayout"
-PROJECT_REPOSITORY = "https://github.com/qq1371989309-prog/map-.git"
+PROJECT_REPOSITORY = "https://gitee.com/qssec/map"
+PRODUCT_DOWNLOAD_URL = "https://gitee.com/qssec/map/raw/master/artifacts/MapFanSim-windows-x64.zip"
 
 # -----------------------------
 # 路径与基础工具
@@ -930,7 +932,9 @@ class App(tk.Tk):
         top.pack_propagate(False)
         tk.Label(top, text="MapFanSim", bg="#0a1119", fg="#5fd0ff", font=("Consolas", 22, "bold")).pack(side=tk.LEFT, padx=22)
         tk.Label(top, text="本地处理清晰优先，云端操作独立执行", bg="#0a1119", fg="#9fb5c7", font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=8)
-        tk.Label(top, text="GitHub: qq1371989309-prog/map-", bg="#0a1119", fg="#6fb8ff", font=("Consolas", 9)).pack(side=tk.RIGHT, padx=(8, 20))
+        repo_link = tk.Label(top, text="Gitee: qssec/map", bg="#0a1119", fg="#6fb8ff", cursor="hand2", font=("Consolas", 9, "underline"))
+        repo_link.pack(side=tk.RIGHT, padx=(8, 20))
+        repo_link.bind("<Button-1>", lambda _e: webbrowser.open(PROJECT_REPOSITORY))
         tk.Label(top, text="玄度技术支持", bg="#0a1119", fg="#8be0b3", font=("Microsoft YaHei UI", 10)).pack(side=tk.RIGHT, padx=20)
 
         main = tk.Frame(self, bg="#0f1720")
@@ -1429,6 +1433,11 @@ class App(tk.Tk):
     def _create_help_page(self):
         p = self.make_page("help")
         ttk.Label(p, text="教程", style="Title.TLabel").pack(anchor="w", padx=24, pady=(22, 4))
+        link_bar = tk.Frame(p, bg="#0f1720")
+        link_bar.pack(fill=tk.X, padx=24, pady=(0, 8))
+        ttk.Button(link_bar, text="最新版下载", command=lambda: webbrowser.open(PRODUCT_DOWNLOAD_URL)).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(link_bar, text="项目仓库", command=lambda: webbrowser.open(PROJECT_REPOSITORY)).pack(side=tk.LEFT, padx=8)
+        ttk.Label(link_bar, text=PRODUCT_DOWNLOAD_URL, style="Sub.TLabel").pack(side=tk.LEFT, padx=12)
         c = self.card(p, "现场使用")
         c.pack(fill=tk.BOTH, expand=True, padx=24, pady=8)
         txt = tk.Text(c, bg="#0d1824", fg="#e8f3f8", font=("Microsoft YaHei UI", 11), wrap="word")
@@ -1469,7 +1478,8 @@ class App(tk.Tk):
 - Host Key 可空，空时自动信任服务器；密码会保存在 data/config.json。
 
 六、项目仓库
-- GitHub：{PROJECT_REPOSITORY}
+- 码云仓库：{PROJECT_REPOSITORY}
+- 最新版下载：{PRODUCT_DOWNLOAD_URL}
 """)
         txt.config(state="disabled")
 

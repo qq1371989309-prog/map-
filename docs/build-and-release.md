@@ -37,6 +37,18 @@ python src\MapFanSim.py
 release\MapFanSim
 ```
 
+生成压缩包：
+
+```powershell
+Compress-Archive -Path release\MapFanSim\* -DestinationPath artifacts\MapFanSim-windows-x64.zip -Force
+```
+
+码云下载地址：
+
+```text
+https://gitee.com/qssec/map/raw/master/artifacts/MapFanSim-windows-x64.zip
+```
+
 发布包包含：
 
 - `MapFanSim.exe`

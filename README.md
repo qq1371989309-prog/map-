@@ -95,6 +95,12 @@ release\MapFanSim
 MapFanSim.exe
 ```
 
+## 成品下载
+
+码云成品包：
+
+[MapFanSim-windows-x64.zip](https://gitee.com/qssec/map/raw/master/artifacts/MapFanSim-windows-x64.zip)
+
 ## 配置说明
 
 默认配置文件：
