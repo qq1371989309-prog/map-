@@ -243,7 +243,7 @@ def ensure_default_files() -> None:
         with RELATIONS_PATH.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["enabled", "local_fan", "target_fan", "note"])
-            w.writerow(["1", "F1-01FJ", "F1-02FJ", "示例：本机 F1-01FJ 仿真目标 F1-02FJ"])
+            w.writerow(["0", "F1-01FJ", "F1-02FJ", "示例：本机 F1-01FJ 仿真目标 F1-02FJ"])
     if not EXTRA_RULES_PATH.exists():
         EXTRA_RULES_PATH.write_text(
             "# 底部额外项，格式：本机行=目标行，例如：900=1280\n"
@@ -319,12 +319,15 @@ def load_relations() -> List[Relation]:
     with RELATIONS_PATH.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for r in reader:
+            note = str(r.get("note", "")).strip()
             enabled = str(r.get("enabled", "1")).strip().lower() not in ("0", "false", "no", "否")
+            if is_default_sample_relation(note):
+                enabled = False
             rels.append(Relation(
                 enabled=enabled,
                 local_fan=normalize_fan_name(r.get("local_fan", "")),
                 target_fan=normalize_fan_name(r.get("target_fan", "")),
-                note=str(r.get("note", "")).strip(),
+                note=note,
             ))
     return rels
 
@@ -402,6 +405,11 @@ def remote_backup_stem(relations: List["Relation"]) -> str:
         return "manual-before"
     pairs = [f"{_fan_backup_part(r.local_fan)}-{_fan_backup_part(r.target_fan)}" for r in enabled]
     return f"{'_'.join(pairs)}-before"
+
+
+def is_default_sample_relation(note: str) -> bool:
+    text = str(note or "").strip()
+    return text.startswith("示例") or text.startswith("默认示例")
 
 
 def import_mapping_table(src_path: Path) -> int:
@@ -1575,6 +1583,17 @@ class App(tk.Tk):
         if lf == tf:
             messagebox.showwarning("提示", "本机故障风机和目标正常风机不能一样。")
             return
+        for rel in self.relations:
+            if rel.local_fan == lf and rel.target_fan == tf:
+                if not rel.enabled:
+                    rel.enabled = True
+                    rel.note = "GUI 启用"
+                    save_relations(self.relations)
+                    self.refresh_relations_table()
+                    self.log(f"启用已有仿真关系：{lf} -> {tf}")
+                else:
+                    messagebox.showinfo("提示", "这组仿真关系已经存在，不会重复添加。")
+                return
         self.relations.append(Relation(True, lf, tf, "GUI 添加"))
         save_relations(self.relations)
         self.refresh_relations_table()
@@ -1836,7 +1855,7 @@ def ensure_default_files() -> None:  # type: ignore[override]
         with RELATIONS_PATH.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["enabled", "local_fan", "target_fan", "note"])
-            w.writerow(["1", "F1-01FJ", "F1-02FJ", "默认示例：本机 F1-01FJ 仿真目标 F1-02FJ"])
+            w.writerow(["0", "F1-01FJ", "F1-02FJ", "默认示例：本机 F1-01FJ 仿真目标 F1-02FJ"])
     if not EXTRA_RULES_PATH.exists():
         EXTRA_RULES_PATH.write_text(
             "# 可选额外行规则，正常现场不用改。\n"
@@ -2115,7 +2134,7 @@ def ensure_wind_farm_profile(name: Optional[str] = None) -> None:
         with rel.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["enabled", "local_fan", "target_fan", "note"])
-            w.writerow(["1", "F1-01FJ", "F1-02FJ", f"默认示例：{name} F1-01FJ 仿真 F1-02FJ"])
+            w.writerow(["0", "F1-01FJ", "F1-02FJ", f"默认示例：{name} F1-01FJ 仿真 F1-02FJ"])
     if not extra.exists():
         extra.write_text(
             "# 当前风场额外行规则。正常现场不用改。\n"
@@ -2152,8 +2171,11 @@ def load_relations() -> List[Relation]:  # type: ignore[override]
     with path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for r in reader:
+            note = str(r.get("note", "")).strip()
             enabled = str(r.get("enabled", "1")).strip().lower() not in ("0", "false", "no", "否")
-            rels.append(Relation(enabled, normalize_fan_name(r.get("local_fan", "")), normalize_fan_name(r.get("target_fan", "")), str(r.get("note", "")).strip()))
+            if is_default_sample_relation(note):
+                enabled = False
+            rels.append(Relation(enabled, normalize_fan_name(r.get("local_fan", "")), normalize_fan_name(r.get("target_fan", "")), note))
     return rels
 
 
@@ -2452,7 +2474,7 @@ def ensure_wind_farm_profile(name: Optional[str] = None) -> None:  # type: ignor
         with rel.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["enabled", "local_fan", "target_fan", "note"])
-            w.writerow(["1", "F1-01FJ", "F1-02FJ", f"默认示例：{name} F1-01FJ 仿真 F1-02FJ"])
+            w.writerow(["0", "F1-01FJ", "F1-02FJ", f"默认示例：{name} F1-01FJ 仿真 F1-02FJ"])
     if not extra.exists():
         extra.write_text(
             "# 当前风场额外行规则。正常现场不用改。\n"
