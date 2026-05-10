@@ -892,11 +892,17 @@ class App(tk.Tk):
         ensure_default_files()
         super().__init__()
         self.cfg = load_config()
-        self.relations = load_relations()
+        self.relation_scope = "local"
+        self.local_relations = load_relations_for_scope("local")
+        self.cloud_relations = load_relations_for_scope("cloud")
+        self.relations = self.local_relations
         self.extra_text_cache = load_extra_rules_text()
         self.relation_trees = []
         self.relation_pick_combos = []
-        self.relation_list_frames = []
+        self.relation_listboxes = []
+        self.relation_manager = None
+        self.relation_manager_listbox = None
+        self.relation_count_vars = []
         self.relation_pick_var = tk.StringVar(value="")
         self.log_text_widgets = []
         self.title(f"{APP_TITLE}  {APP_VERSION}")
@@ -986,11 +992,29 @@ class App(tk.Tk):
         return frame
 
     def show_page(self, key: str):
+        if key == "local_replace":
+            self.set_relation_scope("local")
+        elif key == "cloud_replace":
+            self.set_relation_scope("cloud")
         for p in self.pages.values():
             p.pack_forget()
         self.pages[key].pack(fill=tk.BOTH, expand=True)
         for k, b in self.nav_buttons.items():
             b.configure(bg="#24445e" if k == key else "#101c28", fg="#ffffff" if k == key else "#dfeaf0")
+
+    def set_relation_scope(self, scope: str):
+        scope = "cloud" if scope == "cloud" else "local"
+        self.relation_scope = scope
+        self.relations = self.cloud_relations if scope == "cloud" else self.local_relations
+        if hasattr(self, "relation_listboxes"):
+            self.refresh_relations_table()
+
+    def save_current_relations(self):
+        if self.relation_scope == "cloud":
+            self.cloud_relations = self.relations
+        else:
+            self.local_relations = self.relations
+        save_relations_for_scope(self.relation_scope, self.relations)
 
     def card(self, parent, title: str) -> tk.LabelFrame:
         lf = tk.LabelFrame(parent, text=title, bg="#152231", fg="#9fe4ff", font=("Microsoft YaHei UI", 11, "bold"), padx=12, pady=10, bd=1, relief=tk.GROOVE)
@@ -1028,19 +1052,41 @@ class App(tk.Tk):
         self.target_fan_combo.grid(row=1, column=1, padx=6, pady=4, sticky="w")
         ttk.Button(form, text="添加关系", command=self.add_relation).grid(row=0, column=2, padx=(16, 6), pady=8, sticky="ew")
         ttk.Button(form, text="删除当前关系", command=self.delete_current_relation).grid(row=1, column=2, padx=(16, 6), pady=4, sticky="ew")
-        tk.Label(form, text="已添加关系", bg="#152231", fg="#e8f3f8").grid(row=2, column=0, padx=6, pady=(8, 4), sticky="w")
         pick = ttk.Combobox(form, textvariable=self.relation_pick_var, values=[], width=44, state="readonly")
-        pick.grid(row=2, column=1, padx=6, pady=(8, 4), sticky="ew")
         pick.bind("<<ComboboxSelected>>", lambda _e: self.apply_relation_pick(), add="+")
-        ttk.Button(form, text="删除列表所选", command=self.delete_selected_relation).grid(row=2, column=2, padx=(16, 6), pady=(8, 4), sticky="ew")
         self.relation_pick_combos.append(pick)
+        ttk.Button(form, text="管理已添加关系", command=self.open_relation_manager).grid(row=0, column=3, rowspan=2, padx=(10, 6), pady=8, sticky="nsew")
+        count_var = tk.StringVar(value="已添加关系：0 条")
+        self.relation_count_vars.append(count_var)
+        tk.Label(form, textvariable=count_var, bg="#152231", fg="#9fb5c7").grid(row=2, column=0, columnspan=4, sticky="w", padx=6, pady=(6, 0))
 
-        visual_wrap = tk.LabelFrame(form, text="已添加仿真关系（点行同步，点删除移除）", bg="#152231", fg="#9fe4ff", padx=6, pady=6)
-        visual_wrap.grid(row=0, column=3, rowspan=3, sticky="nsew", padx=(18, 6), pady=4)
-        visual = tk.Frame(visual_wrap, bg="#101c28", bd=1, relief=tk.SOLID, height=104)
-        visual.pack(fill=tk.X)
+        visual_wrap = tk.LabelFrame(form, text="已添加仿真关系摘要", bg="#152231", fg="#9fe4ff", padx=6, pady=6)
+        visual_wrap.grid(row=2, column=0, columnspan=4, sticky="ew", padx=6, pady=(8, 4))
+        visual = tk.Frame(visual_wrap, bg="#101c28", bd=1, relief=tk.SOLID, height=96)
+        visual.pack(fill=tk.BOTH, expand=True)
         visual.pack_propagate(False)
-        self.relation_list_frames.append(visual)
+        list_wrap = tk.Frame(visual, bg="#101c28")
+        list_wrap.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        relation_listbox = tk.Listbox(
+            list_wrap,
+            height=3,
+            bg="#0b1722",
+            fg="#e8f3f8",
+            selectbackground="#2c6f9e",
+            selectforeground="#ffffff",
+            activestyle="dotbox",
+            exportselection=False,
+            font=("Microsoft YaHei UI", 10),
+        )
+        yscroll = ttk.Scrollbar(list_wrap, orient=tk.VERTICAL, command=relation_listbox.yview)
+        xscroll = ttk.Scrollbar(visual, orient=tk.HORIZONTAL, command=relation_listbox.xview)
+        relation_listbox.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        relation_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        yscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        xscroll.pack(side=tk.BOTTOM, fill=tk.X, padx=4)
+        relation_listbox.bind("<<ListboxSelect>>", lambda _e, lb=relation_listbox: self.apply_relation_listbox_pick(lb), add="+")
+        self.relation_listboxes.append(relation_listbox)
+        visual_wrap.grid_remove()
         form.grid_columnconfigure(1, weight=1)
         form.grid_columnconfigure(3, weight=1)
 
@@ -1091,12 +1137,12 @@ class App(tk.Tk):
         if not hasattr(self, "target_map_var"):
             self.target_map_var = tk.StringVar(value=self.cfg.targetMapPath)
         file_card = self.card(parent, "MAP 文件")
-        file_card.pack(fill=tk.X, pady=(0, 10))
+        file_card.pack(fill=tk.X, pady=(0, 6))
         file_grid = tk.Frame(file_card, bg="#152231")
-        file_grid.pack(fill=tk.X, expand=True)
+        file_grid.pack(fill=tk.X, expand=False)
         self._path_row(file_grid, "本机故障 MAP", self.local_map_var, self.choose_local_map, 0)
         self._path_row(file_grid, "目标正常 MAP", self.target_map_var, self.choose_target_map, 1)
-        tk.Label(file_grid, text=hint, bg="#152231", fg="#9fb5c7").grid(row=2, column=1, columnspan=3, sticky="w", pady=(0, 4))
+        file_grid.grid_columnconfigure(1, weight=1)
 
     def _create_local_replace_page(self):
         p = self.make_page("local_replace")
@@ -1109,7 +1155,7 @@ class App(tk.Tk):
         body.pack(fill=tk.BOTH, expand=True, padx=24, pady=(0, 8))
         left = tk.Frame(body, bg="#0f1720")
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        right = tk.Frame(body, bg="#0f1720", width=430)
+        right = tk.Frame(body, bg="#0f1720", width=360)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
         right.pack_propagate(False)
 
@@ -1148,7 +1194,7 @@ class App(tk.Tk):
         body.pack(fill=tk.BOTH, expand=True, padx=24, pady=(0, 8))
         left = tk.Frame(body, bg="#0f1720")
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        right = tk.Frame(body, bg="#0f1720", width=430)
+        right = tk.Frame(body, bg="#0f1720", width=360)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
         right.pack_propagate(False)
 
@@ -1323,9 +1369,9 @@ class App(tk.Tk):
         ttk.Button(btns, text="打开 output_maps", command=lambda: safe_open_folder(DIRS["output_maps"])).pack(side=tk.LEFT, padx=5)
 
     def _path_row(self, parent, label, var, cmd, row):
-        tk.Label(parent, text=label, bg="#152231", fg="#e8f3f8").grid(row=row, column=0, padx=8, pady=8, sticky="w")
-        ttk.Entry(parent, textvariable=var, width=86).grid(row=row, column=1, padx=8, pady=8, sticky="ew")
-        ttk.Button(parent, text="选择", command=cmd).grid(row=row, column=2, padx=8, pady=8)
+        tk.Label(parent, text=label, bg="#152231", fg="#e8f3f8").grid(row=row, column=0, padx=6, pady=4, sticky="w")
+        ttk.Entry(parent, textvariable=var, width=54).grid(row=row, column=1, padx=6, pady=4, sticky="ew")
+        ttk.Button(parent, text="选择", command=cmd).grid(row=row, column=2, padx=6, pady=4)
         parent.grid_columnconfigure(1, weight=1)
 
     def _create_remote_page(self):
@@ -1610,23 +1656,27 @@ class App(tk.Tk):
                 if not rel.enabled:
                     rel.enabled = True
                     rel.note = "GUI 启用"
-                    save_relations(self.relations)
+                    self.save_current_relations()
                     self.refresh_relations_table()
                     self.log(f"启用已有仿真关系：{lf} -> {tf}")
                 else:
                     messagebox.showinfo("提示", "这组仿真关系已经存在，不会重复添加。")
                 return
         self.relations.append(Relation(True, lf, tf, "GUI 添加"))
-        save_relations(self.relations)
+        self.save_current_relations()
         self.refresh_relations_table()
         self.select_relation_index(len(self.relations) - 1)
         self.log(f"添加仿真关系：{lf} -> {tf}")
 
     def delete_selected_relation(self):
         selected = set()
-        pick_idx = self.get_relation_pick_index()
-        if pick_idx is not None:
-            selected.add(pick_idx)
+        list_idx = self.get_relation_listbox_index()
+        if list_idx is not None:
+            selected.add(list_idx)
+        else:
+            pick_idx = self.get_relation_pick_index()
+            if pick_idx is not None:
+                selected.add(pick_idx)
 
         tree = self.get_active_relation_tree()
         if tree is not None:
@@ -1659,7 +1709,7 @@ class App(tk.Tk):
         for idx in indexes:
             if 0 <= idx < len(self.relations):
                 removed.append(self.relations.pop(idx))
-        save_relations(self.relations)
+        self.save_current_relations()
         self.refresh_relations_table()
         if self.relations and next_idx is not None:
             self.select_relation_index(min(next_idx, len(self.relations) - 1))
@@ -1690,52 +1740,125 @@ class App(tk.Tk):
             return
         self.select_relation_index(idx)
 
+    def get_relation_listbox_index(self) -> Optional[int]:
+        for listbox in getattr(self, "relation_listboxes", []):
+            selection = listbox.curselection()
+            if selection:
+                idx = int(selection[0])
+                return idx if 0 <= idx < len(self.relations) else None
+        return None
+
+    def apply_relation_listbox_pick(self, listbox):
+        selection = listbox.curselection()
+        if not selection:
+            return
+        idx = int(selection[0])
+        if 0 <= idx < len(self.relations):
+            self.select_relation_index(idx)
+
+    def open_relation_manager(self):
+        if self.relation_manager is not None and self.relation_manager.winfo_exists():
+            self.relation_manager.lift()
+            self.relation_manager.focus_force()
+            self.refresh_relation_manager()
+            return
+
+        win = tk.Toplevel(self)
+        win.title("管理已添加仿真关系")
+        win.geometry("760x420")
+        win.minsize(680, 360)
+        win.configure(bg="#0f1720")
+        win.transient(self)
+        self.relation_manager = win
+
+        tk.Label(
+            win,
+            text="已添加仿真关系",
+            bg="#0f1720",
+            fg="#5fd0ff",
+            font=("Microsoft YaHei UI", 16, "bold"),
+        ).pack(anchor="w", padx=16, pady=(14, 8))
+
+        box_frame = tk.Frame(win, bg="#0f1720")
+        box_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 10))
+        lb = tk.Listbox(
+            box_frame,
+            bg="#0b1722",
+            fg="#e8f3f8",
+            selectbackground="#2c6f9e",
+            selectforeground="#ffffff",
+            activestyle="dotbox",
+            exportselection=False,
+            font=("Microsoft YaHei UI", 11),
+        )
+        yscroll = ttk.Scrollbar(box_frame, orient=tk.VERTICAL, command=lb.yview)
+        xscroll = ttk.Scrollbar(win, orient=tk.HORIZONTAL, command=lb.xview)
+        lb.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        yscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        xscroll.pack(fill=tk.X, padx=16, pady=(0, 8))
+        lb.bind("<<ListboxSelect>>", lambda _e: self.apply_relation_listbox_pick(lb), add="+")
+        self.relation_manager_listbox = lb
+
+        buttons = tk.Frame(win, bg="#0f1720")
+        buttons.pack(fill=tk.X, padx=16, pady=(0, 14))
+        ttk.Button(buttons, text="删除选中关系", command=self.delete_manager_selected_relation).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(buttons, text="关闭", command=win.destroy).pack(side=tk.RIGHT)
+
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
+        self.refresh_relation_manager()
+
+    def refresh_relation_manager(self):
+        lb = getattr(self, "relation_manager_listbox", None)
+        if lb is None or not lb.winfo_exists():
+            return
+        current = lb.curselection()
+        current_idx = int(current[0]) if current else None
+        lb.delete(0, tk.END)
+        values = self.relation_pick_values()
+        if not values:
+            lb.insert(tk.END, "暂无已添加关系")
+            return
+        for value in values:
+            lb.insert(tk.END, value)
+        if current_idx is not None:
+            idx = min(current_idx, len(values) - 1)
+            lb.selection_set(idx)
+            lb.activate(idx)
+            lb.see(idx)
+
+    def delete_manager_selected_relation(self):
+        lb = getattr(self, "relation_manager_listbox", None)
+        if lb is None or not lb.winfo_exists():
+            return
+        selection = lb.curselection()
+        if not selection:
+            self.log("删除仿真关系：请先在管理窗口里选择一条关系。")
+            return
+        idx = int(selection[0])
+        if 0 <= idx < len(self.relations):
+            self.delete_relation_indexes({idx})
+            self.refresh_relation_manager()
+
     def render_relation_visual_lists(self):
-        frames = getattr(self, "relation_list_frames", [])
-        for frame in frames:
-            for child in frame.winfo_children():
-                child.destroy()
-            if not self.relations:
-                tk.Label(
-                    frame,
-                    text="暂无已添加关系",
-                    bg="#101c28",
-                    fg="#9fb5c7",
-                    anchor="w",
-                    padx=10,
-                    pady=8,
-                ).pack(fill=tk.X)
-                continue
-            for idx, rel in enumerate(self.relations):
-                row = tk.Frame(frame, bg="#101c28")
-                row.pack(fill=tk.X, padx=6, pady=(6 if idx == 0 else 2, 4))
-                label_text = f"{idx + 1}. 本机：{rel.local_fan}  ->  目标风机：{rel.target_fan}"
-                btn = tk.Button(
-                    row,
-                    text=label_text,
-                    anchor="w",
-                    bg="#142436",
-                    fg="#e8f3f8",
-                    activebackground="#24445e",
-                    activeforeground="#ffffff",
-                    relief=tk.FLAT,
-                    padx=10,
-                    pady=6,
-                    command=lambda i=idx: self.select_relation_index(i),
-                )
-                btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
-                tk.Button(
-                    row,
-                    text="删除",
-                    bg="#7f1d1d",
-                    fg="#ffffff",
-                    activebackground="#b91c1c",
-                    activeforeground="#ffffff",
-                    relief=tk.FLAT,
-                    padx=14,
-                    pady=6,
-                    command=lambda i=idx: self.delete_relation_indexes({i}),
-                ).pack(side=tk.RIGHT, padx=(8, 0))
+        values = [
+            f"{idx + 1}. 本机：{rel.local_fan}  ->  目标风机：{rel.target_fan}  [{('启用' if rel.enabled else '禁用')}]"
+            for idx, rel in enumerate(self.relations)
+        ]
+        if not values:
+            values = ["暂无已添加关系"]
+        for listbox in getattr(self, "relation_listboxes", []):
+            current = listbox.curselection()
+            current_idx = int(current[0]) if current else None
+            listbox.delete(0, tk.END)
+            for value in values:
+                listbox.insert(tk.END, value)
+            if self.relations and current_idx is not None:
+                idx = min(current_idx, len(self.relations) - 1)
+                listbox.selection_set(idx)
+                listbox.activate(idx)
+                listbox.see(idx)
+        self.refresh_relation_manager()
 
     def set_active_relation_tree(self, tree):
         self.active_relation_tree = tree
@@ -1757,6 +1880,12 @@ class App(tk.Tk):
                 self.local_fan_var.set(rel.local_fan)
             if hasattr(self, "target_fan_var"):
                 self.target_fan_var.set(rel.target_fan)
+        for listbox in getattr(self, "relation_listboxes", []):
+            if 0 <= idx < listbox.size() and self.relations:
+                listbox.selection_clear(0, tk.END)
+                listbox.selection_set(idx)
+                listbox.activate(idx)
+                listbox.see(idx)
         tree = self.get_active_relation_tree()
         if tree is None:
             return
@@ -1787,7 +1916,10 @@ class App(tk.Tk):
         trees = getattr(self, "relation_trees", [])
         if not trees and hasattr(self, "relation_tree"):
             trees = [self.relation_tree]
+        for var in getattr(self, "relation_count_vars", []):
+            var.set(f"已添加关系：{len(self.relations)} 条（点击“管理已添加关系”查看、选择、删除）")
         self.render_relation_visual_lists()
+        self.refresh_relation_manager()
         values = self.relation_pick_values()
         for combo in getattr(self, "relation_pick_combos", []):
             combo.configure(values=values)
@@ -1850,9 +1982,10 @@ class App(tk.Tk):
 
     # ---- 任务 ----
     def task_local_sim(self):
+        relations = list(self.local_relations)
         def work():
             self.save_settings_no_popup()
-            save_relations(self.relations)
+            save_relations_for_scope("local", relations)
             extra = self.extra_text.get("1.0", tk.END) if hasattr(self, "extra_text") else load_extra_rules_text()
             save_extra_rules_text(extra)
             maps = sorted(DIRS["input_maps"].glob("*.map"))
@@ -1862,13 +1995,13 @@ class App(tk.Tk):
                 total_changes = 0
                 self.log(f"本地批量替换：发现 {len(maps)} 个 .map 文件。")
                 for local_map in maps:
-                    _, _, changes = run_local_simulation(self.cfg, self.relations, local_map, target_map, extra, self.log)
+                    _, _, changes = run_local_simulation(self.cfg, relations, local_map, target_map, extra, self.log)
                     total_changes += changes
                     self.log("------------------------------")
                 self.log(f"本地批量替换完成：处理 {len(maps)} 个文件，替换 {total_changes} 条。")
             else:
                 local_map, target_map = self.get_local_paths_for_sim()
-                run_local_simulation(self.cfg, self.relations, local_map, target_map, extra, self.log)
+                run_local_simulation(self.cfg, relations, local_map, target_map, extra, self.log)
         self.run_bg("本地批量替换", work)
 
     def task_test_remote(self):
@@ -1898,20 +2031,22 @@ class App(tk.Tk):
         return maps[0]
 
     def task_upload_latest_update(self):
+        relations = list(self.cloud_relations)
         def work():
             self.save_settings_no_popup()
             f = self._latest_update_file()
             client = RemoteClient(self.cfg, self.log)
-            client.backup_remote(remote_backup_stem(self.relations))
+            client.backup_remote(remote_backup_stem(relations))
             client.upload(f)
         self.run_bg("上传 update 目录 MAP", work)
 
     def task_one_click(self):
+        relations = list(self.cloud_relations)
         def work():
             self.save_settings_no_popup()
-            save_relations(self.relations)
+            save_relations_for_scope("cloud", relations)
             client = RemoteClient(self.cfg, self.log)
-            remote_backup = client.backup_remote(remote_backup_stem(self.relations))
+            remote_backup = client.backup_remote(remote_backup_stem(relations))
             downloaded = client.download()
             backup = backup_original_name(downloaded)
             backup_meta = {
@@ -1920,7 +2055,7 @@ class App(tk.Tk):
                 "remote_backup_file": remote_backup,
                 "time": now_stamp(),
                 "backup_file": str(backup),
-                "pairs": [asdict(r) for r in self.relations],
+                "pairs": [asdict(r) for r in relations],
             }
             (DIRS["backup"] / "last_backup.json").write_text(json.dumps(backup_meta, ensure_ascii=False, indent=2), encoding="utf-8")
             self.log(f"一键仿真原始备份：{backup}")
@@ -1928,7 +2063,7 @@ class App(tk.Tk):
             self.cfg.localMapPath = str(downloaded)
             save_config(self.cfg)
             extra = self.extra_text.get("1.0", tk.END) if hasattr(self, "extra_text") else load_extra_rules_text()
-            output, report, changes = run_local_simulation(self.cfg, self.relations, downloaded, Path(self.cfg.targetMapPath) if self.cfg.targetMapPath else None, extra, self.log)
+            output, report, changes = run_local_simulation(self.cfg, relations, downloaded, Path(self.cfg.targetMapPath) if self.cfg.targetMapPath else None, extra, self.log)
             upload_file = DIRS["update"] / self.cfg.remoteFile
             client.upload(upload_file if upload_file.exists() else output)
         self.run_bg("一键仿真", work)
@@ -1992,7 +2127,8 @@ class App(tk.Tk):
     def on_close(self):
         try:
             self.save_settings_no_popup()
-            save_relations(self.relations)
+            save_relations_for_scope("local", self.local_relations)
+            save_relations_for_scope("cloud", self.cloud_relations)
             if hasattr(self, "extra_text"):
                 save_extra_rules_text(self.extra_text.get("1.0", tk.END))
         except Exception:
@@ -2285,6 +2421,11 @@ def farm_relations_path(name: Optional[str] = None) -> Path:
     return get_farm_dir(name) / "relations.csv"
 
 
+def farm_relations_path_for_scope(scope: str, name: Optional[str] = None) -> Path:
+    suffix = "cloud" if scope == "cloud" else "local"
+    return get_farm_dir(name) / f"relations_{suffix}.csv"
+
+
 def farm_extra_rules_path(name: Optional[str] = None) -> Path:
     return get_farm_dir(name) / "extra_rules.txt"
 
@@ -2347,6 +2488,10 @@ def list_wind_farms() -> List[str]:  # type: ignore[override]
 def load_relations() -> List[Relation]:  # type: ignore[override]
     ensure_wind_farm_profile(get_current_wind_farm())
     path = farm_relations_path()
+    return load_relations_from_path(path)
+
+
+def load_relations_from_path(path: Path) -> List[Relation]:
     rels: List[Relation] = []
     with path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
@@ -2362,11 +2507,35 @@ def load_relations() -> List[Relation]:  # type: ignore[override]
 def save_relations(rels: List[Relation]) -> None:  # type: ignore[override]
     ensure_wind_farm_profile(get_current_wind_farm())
     path = farm_relations_path()
+    save_relations_to_path(rels, path)
+
+
+def save_relations_to_path(rels: List[Relation], path: Path) -> None:
     with path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
         w.writerow(["enabled", "local_fan", "target_fan", "note"])
         for r in rels:
             w.writerow(["1" if r.enabled else "0", r.local_fan, r.target_fan, r.note])
+
+
+def ensure_scoped_relations_file(scope: str) -> Path:
+    ensure_wind_farm_profile(get_current_wind_farm())
+    path = farm_relations_path_for_scope(scope)
+    if not path.exists():
+        base = farm_relations_path()
+        if base.exists():
+            shutil.copy2(base, path)
+        else:
+            save_relations_to_path([], path)
+    return path
+
+
+def load_relations_for_scope(scope: str) -> List[Relation]:
+    return load_relations_from_path(ensure_scoped_relations_file(scope))
+
+
+def save_relations_for_scope(scope: str, rels: List[Relation]) -> None:
+    save_relations_to_path(rels, ensure_scoped_relations_file(scope))
 
 
 def load_extra_rules_text() -> str:  # type: ignore[override]
@@ -2495,7 +2664,9 @@ def _v5_switch_wind_farm(self):
     if not name:
         return
     set_current_wind_farm(name)
-    self.relations = load_relations()
+    self.local_relations = load_relations_for_scope("local")
+    self.cloud_relations = load_relations_for_scope("cloud")
+    self.relations = self.cloud_relations if getattr(self, "relation_scope", "local") == "cloud" else self.local_relations
     self.refresh_relations_table()
     fans = list_all_fans()
     if hasattr(self, "local_fan_combo"):
@@ -2986,7 +3157,9 @@ def _v6_switch_wind_farm(self):
     if not name:
         return
     set_current_wind_farm(name)
-    self.relations = load_relations()
+    self.local_relations = load_relations_for_scope("local")
+    self.cloud_relations = load_relations_for_scope("cloud")
+    self.relations = self.cloud_relations if getattr(self, "relation_scope", "local") == "cloud" else self.local_relations
     self.refresh_relations_table()
     fans = list_all_fans()
     if hasattr(self, "local_fan_combo"):
