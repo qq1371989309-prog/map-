@@ -1030,6 +1030,7 @@ class App(tk.Tk):
         tk.Label(form, text="已添加关系", bg="#152231", fg="#e8f3f8").grid(row=2, column=0, padx=6, pady=(8, 4), sticky="w")
         pick = ttk.Combobox(form, textvariable=self.relation_pick_var, values=[], width=44, state="readonly")
         pick.grid(row=2, column=1, padx=6, pady=(8, 4), sticky="ew")
+        pick.bind("<<ComboboxSelected>>", lambda _e: self.apply_relation_pick(), add="+")
         ttk.Button(form, text="删除列表所选", command=self.delete_selected_relation).grid(row=2, column=2, padx=(16, 6), pady=(8, 4), sticky="ew")
         self.relation_pick_combos.append(pick)
         form.grid_columnconfigure(3, weight=1)
@@ -1643,6 +1644,7 @@ class App(tk.Tk):
         self.delete_relation_indexes(selected)
 
     def delete_relation_indexes(self, selected):
+        next_idx = min(selected) if selected else None
         indexes = sorted(selected, reverse=True)
         removed = []
         for idx in indexes:
@@ -1650,6 +1652,8 @@ class App(tk.Tk):
                 removed.append(self.relations.pop(idx))
         save_relations(self.relations)
         self.refresh_relations_table()
+        if self.relations and next_idx is not None:
+            self.select_relation_index(min(next_idx, len(self.relations) - 1))
         if removed:
             names = "，".join(f"{r.local_fan}->{r.target_fan}" for r in reversed(removed))
             self.log(f"已删除仿真关系：{names}")
@@ -1671,6 +1675,12 @@ class App(tk.Tk):
         idx = int(m.group(1)) - 1
         return idx if 0 <= idx < len(self.relations) else None
 
+    def apply_relation_pick(self):
+        idx = self.get_relation_pick_index()
+        if idx is None:
+            return
+        self.select_relation_index(idx)
+
     def set_active_relation_tree(self, tree):
         self.active_relation_tree = tree
 
@@ -1685,7 +1695,12 @@ class App(tk.Tk):
     def select_relation_index(self, idx: int):
         iid = str(idx)
         if hasattr(self, "relation_pick_var") and 0 <= idx < len(self.relations):
-            self.relation_pick_var.set(self.relation_label(idx, self.relations[idx]))
+            rel = self.relations[idx]
+            self.relation_pick_var.set(self.relation_label(idx, rel))
+            if hasattr(self, "local_fan_var"):
+                self.local_fan_var.set(rel.local_fan)
+            if hasattr(self, "target_fan_var"):
+                self.target_fan_var.set(rel.target_fan)
         tree = self.get_active_relation_tree()
         if tree is None:
             return
