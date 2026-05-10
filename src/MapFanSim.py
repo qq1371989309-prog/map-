@@ -896,6 +896,7 @@ class App(tk.Tk):
         self.extra_text_cache = load_extra_rules_text()
         self.relation_trees = []
         self.relation_pick_combos = []
+        self.relation_list_frames = []
         self.relation_pick_var = tk.StringVar(value="")
         self.log_text_widgets = []
         self.title(f"{APP_TITLE}  {APP_VERSION}")
@@ -1034,6 +1035,10 @@ class App(tk.Tk):
         ttk.Button(form, text="删除列表所选", command=self.delete_selected_relation).grid(row=2, column=2, padx=(16, 6), pady=(8, 4), sticky="ew")
         self.relation_pick_combos.append(pick)
         form.grid_columnconfigure(3, weight=1)
+
+        visual = tk.Frame(c, bg="#101c28", bd=1, relief=tk.SOLID)
+        visual.pack(fill=tk.X, pady=(10, 0))
+        self.relation_list_frames.append(visual)
 
         cols = ("enabled", "local", "target", "note")
         tree = ttk.Treeview(c, columns=cols, show="headings", height=8, selectmode="extended")
@@ -1681,6 +1686,53 @@ class App(tk.Tk):
             return
         self.select_relation_index(idx)
 
+    def render_relation_visual_lists(self):
+        frames = getattr(self, "relation_list_frames", [])
+        for frame in frames:
+            for child in frame.winfo_children():
+                child.destroy()
+            if not self.relations:
+                tk.Label(
+                    frame,
+                    text="暂无已添加关系",
+                    bg="#101c28",
+                    fg="#9fb5c7",
+                    anchor="w",
+                    padx=10,
+                    pady=8,
+                ).pack(fill=tk.X)
+                continue
+            for idx, rel in enumerate(self.relations):
+                row = tk.Frame(frame, bg="#101c28")
+                row.pack(fill=tk.X, padx=6, pady=(6 if idx == 0 else 2, 4))
+                label_text = f"{idx + 1}. 本机：{rel.local_fan}  ->  目标风机：{rel.target_fan}"
+                btn = tk.Button(
+                    row,
+                    text=label_text,
+                    anchor="w",
+                    bg="#142436",
+                    fg="#e8f3f8",
+                    activebackground="#24445e",
+                    activeforeground="#ffffff",
+                    relief=tk.FLAT,
+                    padx=10,
+                    pady=6,
+                    command=lambda i=idx: self.select_relation_index(i),
+                )
+                btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
+                tk.Button(
+                    row,
+                    text="删除",
+                    bg="#7f1d1d",
+                    fg="#ffffff",
+                    activebackground="#b91c1c",
+                    activeforeground="#ffffff",
+                    relief=tk.FLAT,
+                    padx=14,
+                    pady=6,
+                    command=lambda i=idx: self.delete_relation_indexes({i}),
+                ).pack(side=tk.RIGHT, padx=(8, 0))
+
     def set_active_relation_tree(self, tree):
         self.active_relation_tree = tree
 
@@ -1731,6 +1783,7 @@ class App(tk.Tk):
         trees = getattr(self, "relation_trees", [])
         if not trees and hasattr(self, "relation_tree"):
             trees = [self.relation_tree]
+        self.render_relation_visual_lists()
         values = self.relation_pick_values()
         for combo in getattr(self, "relation_pick_combos", []):
             combo.configure(values=values)
