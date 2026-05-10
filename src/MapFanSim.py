@@ -1034,11 +1034,15 @@ class App(tk.Tk):
         pick.bind("<<ComboboxSelected>>", lambda _e: self.apply_relation_pick(), add="+")
         ttk.Button(form, text="删除列表所选", command=self.delete_selected_relation).grid(row=2, column=2, padx=(16, 6), pady=(8, 4), sticky="ew")
         self.relation_pick_combos.append(pick)
-        form.grid_columnconfigure(3, weight=1)
 
-        visual = tk.Frame(c, bg="#101c28", bd=1, relief=tk.SOLID)
-        visual.pack(fill=tk.X, pady=(10, 0))
+        visual_wrap = tk.LabelFrame(form, text="已添加仿真关系（点行同步，点删除移除）", bg="#152231", fg="#9fe4ff", padx=6, pady=6)
+        visual_wrap.grid(row=0, column=3, rowspan=3, sticky="nsew", padx=(18, 6), pady=4)
+        visual = tk.Frame(visual_wrap, bg="#101c28", bd=1, relief=tk.SOLID, height=104)
+        visual.pack(fill=tk.X)
+        visual.pack_propagate(False)
         self.relation_list_frames.append(visual)
+        form.grid_columnconfigure(1, weight=1)
+        form.grid_columnconfigure(3, weight=1)
 
         cols = ("enabled", "local", "target", "note")
         tree = ttk.Treeview(c, columns=cols, show="headings", height=8, selectmode="extended")
@@ -1050,7 +1054,7 @@ class App(tk.Tk):
         tree.column("local", width=140, anchor="center")
         tree.column("target", width=140, anchor="center")
         tree.column("note", width=320, anchor="w")
-        tree.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+        tree.pack_forget()
         self.relation_trees.append(tree)
         self.relation_tree = tree
         tree.bind("<FocusIn>", lambda _e, t=tree: self.set_active_relation_tree(t))
