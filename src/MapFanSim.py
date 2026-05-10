@@ -1024,7 +1024,7 @@ class App(tk.Tk):
         self.target_fan_combo = ttk.Combobox(form, textvariable=self.target_fan_var, values=fans, width=22)
         self.target_fan_combo.grid(row=1, column=1, padx=6, pady=4, sticky="w")
         ttk.Button(form, text="添加关系", command=self.add_relation).grid(row=0, column=2, padx=(16, 6), pady=8, sticky="ew")
-        ttk.Button(form, text="删除选中", command=self.delete_selected_relation).grid(row=1, column=2, padx=(16, 6), pady=4, sticky="ew")
+        ttk.Button(form, text="删除当前关系", command=self.delete_selected_relation).grid(row=1, column=2, padx=(16, 6), pady=4, sticky="ew")
         form.grid_columnconfigure(3, weight=1)
 
         cols = ("enabled", "local", "target", "note")
@@ -1607,18 +1607,23 @@ class App(tk.Tk):
 
     def delete_selected_relation(self):
         tree = self.get_active_relation_tree()
-        if tree is None:
-            self.log("删除仿真关系：请先在当前页面选中要删除的关系。")
-            return
         selected = set()
-        for iid in tree.selection():
-            try:
-                selected.add(int(iid))
-            except ValueError:
-                continue
+        if tree is not None:
+            for iid in tree.selection():
+                try:
+                    selected.add(int(iid))
+                except ValueError:
+                    continue
         if not selected:
-            self.log("删除仿真关系：当前页面没有选中的关系。")
-            return
+            lf = normalize_fan_name(self.local_fan_var.get()) if hasattr(self, "local_fan_var") else ""
+            tf = normalize_fan_name(self.target_fan_var.get()) if hasattr(self, "target_fan_var") else ""
+            selected = {
+                idx for idx, rel in enumerate(self.relations)
+                if rel.local_fan == lf and rel.target_fan == tf
+            }
+            if not selected:
+                self.log(f"删除仿真关系：没有找到当前关系 {lf} -> {tf}。")
+                return
         indexes = sorted(selected, reverse=True)
         removed = []
         for idx in indexes:
