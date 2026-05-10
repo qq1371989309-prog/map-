@@ -934,6 +934,7 @@ class App(tk.Tk):
         self.style.configure("TCombobox", fieldbackground="#0d1824", foreground="#f4fbff", arrowcolor="#5fd0ff")
         self.style.configure("Treeview", background="#101c28", fieldbackground="#101c28", foreground="#e8f3f8", rowheight=27, font=("Microsoft YaHei UI", 9))
         self.style.configure("Treeview.Heading", background="#203347", foreground="#9fe4ff", font=("Microsoft YaHei UI", 10, "bold"))
+        self.style.map("Treeview", background=[("selected", "#2c6f9e")], foreground=[("selected", "#ffffff")])
 
     def _build_layout(self):
         top = tk.Frame(self, bg="#0a1119", height=62)
@@ -1041,6 +1042,7 @@ class App(tk.Tk):
         self.relation_tree = tree
         tree.bind("<FocusIn>", lambda _e, t=tree: self.set_active_relation_tree(t))
         tree.bind("<Button-1>", lambda _e, t=tree: self.set_active_relation_tree(t), add="+")
+        tree.bind("<ButtonRelease-1>", lambda e, t=tree: self.select_relation_row(e, t), add="+")
         tree.bind("<<TreeviewSelect>>", lambda _e, t=tree: self.set_active_relation_tree(t), add="+")
 
     def _grid_buttons(self, parent, buttons, columns=3):
@@ -1600,6 +1602,7 @@ class App(tk.Tk):
         self.relations.append(Relation(True, lf, tf, "GUI 添加"))
         save_relations(self.relations)
         self.refresh_relations_table()
+        self.select_relation_index(len(self.relations) - 1)
         self.log(f"添加仿真关系：{lf} -> {tf}")
 
     def delete_selected_relation(self):
@@ -1629,6 +1632,24 @@ class App(tk.Tk):
 
     def set_active_relation_tree(self, tree):
         self.active_relation_tree = tree
+
+    def select_relation_row(self, event, tree):
+        self.set_active_relation_tree(tree)
+        row = tree.identify_row(event.y)
+        if not row:
+            return
+        tree.focus(row)
+        tree.selection_set(row)
+
+    def select_relation_index(self, idx: int):
+        iid = str(idx)
+        tree = self.get_active_relation_tree()
+        if tree is None:
+            return
+        if iid in tree.get_children():
+            tree.focus(iid)
+            tree.selection_set(iid)
+            tree.see(iid)
 
     def get_active_relation_tree(self):
         trees = list(getattr(self, "relation_trees", []))
