@@ -895,6 +895,8 @@ class App(tk.Tk):
         self.relations = load_relations()
         self.extra_text_cache = load_extra_rules_text()
         self.relation_trees = []
+        self.relation_pick_combos = []
+        self.relation_pick_var = tk.StringVar(value="")
         self.log_text_widgets = []
         self.title(f"{APP_TITLE}  {APP_VERSION}")
         self.geometry("1180x760")
@@ -1024,7 +1026,12 @@ class App(tk.Tk):
         self.target_fan_combo = ttk.Combobox(form, textvariable=self.target_fan_var, values=fans, width=22)
         self.target_fan_combo.grid(row=1, column=1, padx=6, pady=4, sticky="w")
         ttk.Button(form, text="添加关系", command=self.add_relation).grid(row=0, column=2, padx=(16, 6), pady=8, sticky="ew")
-        ttk.Button(form, text="删除当前关系", command=self.delete_selected_relation).grid(row=1, column=2, padx=(16, 6), pady=4, sticky="ew")
+        ttk.Button(form, text="删除当前关系", command=self.delete_current_relation).grid(row=1, column=2, padx=(16, 6), pady=4, sticky="ew")
+        tk.Label(form, text="已添加关系", bg="#152231", fg="#e8f3f8").grid(row=2, column=0, padx=6, pady=(8, 4), sticky="w")
+        pick = ttk.Combobox(form, textvariable=self.relation_pick_var, values=[], width=44, state="readonly")
+        pick.grid(row=2, column=1, padx=6, pady=(8, 4), sticky="ew")
+        ttk.Button(form, text="删除列表所选", command=self.delete_selected_relation).grid(row=2, column=2, padx=(16, 6), pady=(8, 4), sticky="ew")
+        self.relation_pick_combos.append(pick)
         form.grid_columnconfigure(3, weight=1)
 
         cols = ("enabled", "local", "target", "note")
@@ -1606,8 +1613,12 @@ class App(tk.Tk):
         self.log(f"添加仿真关系：{lf} -> {tf}")
 
     def delete_selected_relation(self):
-        tree = self.get_active_relation_tree()
         selected = set()
+        pick_idx = self.get_relation_pick_index()
+        if pick_idx is not None:
+            selected.add(pick_idx)
+
+        tree = self.get_active_relation_tree()
         if tree is not None:
             for iid in tree.selection():
                 try:
@@ -1615,15 +1626,23 @@ class App(tk.Tk):
                 except ValueError:
                     continue
         if not selected:
-            lf = normalize_fan_name(self.local_fan_var.get()) if hasattr(self, "local_fan_var") else ""
-            tf = normalize_fan_name(self.target_fan_var.get()) if hasattr(self, "target_fan_var") else ""
-            selected = {
-                idx for idx, rel in enumerate(self.relations)
-                if rel.local_fan == lf and rel.target_fan == tf
-            }
-            if not selected:
-                self.log(f"删除仿真关系：没有找到当前关系 {lf} -> {tf}。")
-                return
+            self.log("删除仿真关系：请先在“已添加关系”里选择要删除的关系。")
+            return
+        self.delete_relation_indexes(selected)
+
+    def delete_current_relation(self):
+        lf = normalize_fan_name(self.local_fan_var.get()) if hasattr(self, "local_fan_var") else ""
+        tf = normalize_fan_name(self.target_fan_var.get()) if hasattr(self, "target_fan_var") else ""
+        selected = {
+            idx for idx, rel in enumerate(self.relations)
+            if rel.local_fan == lf and rel.target_fan == tf
+        }
+        if not selected:
+            self.log(f"删除仿真关系：没有找到当前关系 {lf} -> {tf}。")
+            return
+        self.delete_relation_indexes(selected)
+
+    def delete_relation_indexes(self, selected):
         indexes = sorted(selected, reverse=True)
         removed = []
         for idx in indexes:
@@ -1634,6 +1653,23 @@ class App(tk.Tk):
         if removed:
             names = "，".join(f"{r.local_fan}->{r.target_fan}" for r in reversed(removed))
             self.log(f"已删除仿真关系：{names}")
+
+    def relation_label(self, idx: int, rel: Relation) -> str:
+        status = "启用" if rel.enabled else "禁用"
+        return f"{idx + 1}. {rel.local_fan} -> {rel.target_fan} [{status}]"
+
+    def relation_pick_values(self) -> List[str]:
+        return [self.relation_label(idx, rel) for idx, rel in enumerate(self.relations)]
+
+    def get_relation_pick_index(self) -> Optional[int]:
+        value = self.relation_pick_var.get().strip() if hasattr(self, "relation_pick_var") else ""
+        if not value:
+            return None
+        m = re.match(r"^(\d+)\.", value)
+        if not m:
+            return None
+        idx = int(m.group(1)) - 1
+        return idx if 0 <= idx < len(self.relations) else None
 
     def set_active_relation_tree(self, tree):
         self.active_relation_tree = tree
@@ -1648,6 +1684,8 @@ class App(tk.Tk):
 
     def select_relation_index(self, idx: int):
         iid = str(idx)
+        if hasattr(self, "relation_pick_var") and 0 <= idx < len(self.relations):
+            self.relation_pick_var.set(self.relation_label(idx, self.relations[idx]))
         tree = self.get_active_relation_tree()
         if tree is None:
             return
@@ -1678,6 +1716,15 @@ class App(tk.Tk):
         trees = getattr(self, "relation_trees", [])
         if not trees and hasattr(self, "relation_tree"):
             trees = [self.relation_tree]
+        values = self.relation_pick_values()
+        for combo in getattr(self, "relation_pick_combos", []):
+            combo.configure(values=values)
+        current = self.relation_pick_var.get().strip() if hasattr(self, "relation_pick_var") else ""
+        if values:
+            if current not in values:
+                self.relation_pick_var.set(values[0])
+        elif hasattr(self, "relation_pick_var"):
+            self.relation_pick_var.set("")
         if not trees:
             return
         for tree in trees:
