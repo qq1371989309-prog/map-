@@ -1027,7 +1027,7 @@ class App(tk.Tk):
         form.grid_columnconfigure(3, weight=1)
 
         cols = ("enabled", "local", "target", "note")
-        tree = ttk.Treeview(c, columns=cols, show="headings", height=8)
+        tree = ttk.Treeview(c, columns=cols, show="headings", height=8, selectmode="extended")
         tree.heading("enabled", text="启用")
         tree.heading("local", text="本机故障风机")
         tree.heading("target", text="目标正常风机")
@@ -1039,6 +1039,9 @@ class App(tk.Tk):
         tree.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
         self.relation_trees.append(tree)
         self.relation_tree = tree
+        tree.bind("<FocusIn>", lambda _e, t=tree: self.set_active_relation_tree(t))
+        tree.bind("<Button-1>", lambda _e, t=tree: self.set_active_relation_tree(t), add="+")
+        tree.bind("<<TreeviewSelect>>", lambda _e, t=tree: self.set_active_relation_tree(t), add="+")
 
     def _grid_buttons(self, parent, buttons, columns=3):
         grid = tk.Frame(parent, bg="#152231")
@@ -1600,18 +1603,50 @@ class App(tk.Tk):
         self.log(f"添加仿真关系：{lf} -> {tf}")
 
     def delete_selected_relation(self):
+        tree = self.get_active_relation_tree()
+        if tree is None:
+            self.log("删除仿真关系：请先在当前页面选中要删除的关系。")
+            return
         selected = set()
-        for tree in getattr(self, "relation_trees", []):
-            for iid in tree.selection():
+        for iid in tree.selection():
+            try:
                 selected.add(int(iid))
+            except ValueError:
+                continue
         if not selected:
+            self.log("删除仿真关系：当前页面没有选中的关系。")
             return
         indexes = sorted(selected, reverse=True)
+        removed = []
         for idx in indexes:
             if 0 <= idx < len(self.relations):
-                self.relations.pop(idx)
+                removed.append(self.relations.pop(idx))
         save_relations(self.relations)
         self.refresh_relations_table()
+        if removed:
+            names = "，".join(f"{r.local_fan}->{r.target_fan}" for r in reversed(removed))
+            self.log(f"已删除仿真关系：{names}")
+
+    def set_active_relation_tree(self, tree):
+        self.active_relation_tree = tree
+
+    def get_active_relation_tree(self):
+        trees = list(getattr(self, "relation_trees", []))
+        if not trees and hasattr(self, "relation_tree"):
+            trees = [self.relation_tree]
+
+        visible_trees = [tree for tree in trees if tree.winfo_ismapped()]
+        active = getattr(self, "active_relation_tree", None)
+        if active in visible_trees:
+            return active
+        for tree in visible_trees:
+            if tree.selection():
+                self.active_relation_tree = tree
+                return tree
+        if len(visible_trees) == 1:
+            self.active_relation_tree = visible_trees[0]
+            return visible_trees[0]
+        return None
 
     def refresh_relations_table(self):
         trees = getattr(self, "relation_trees", [])
