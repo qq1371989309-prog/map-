@@ -1142,7 +1142,7 @@ class App(tk.Tk):
         file_grid.pack(fill=tk.X, expand=False)
         self._path_row(file_grid, "本机故障 MAP", self.local_map_var, self.choose_local_map, 0)
         self._path_row(file_grid, "目标正常 MAP", self.target_map_var, self.choose_target_map, 1)
-        file_grid.grid_columnconfigure(1, weight=1)
+        file_grid.grid_columnconfigure(1, weight=0)
 
     def _create_local_replace_page(self):
         p = self.make_page("local_replace")
@@ -1155,7 +1155,7 @@ class App(tk.Tk):
         body.pack(fill=tk.BOTH, expand=True, padx=24, pady=(0, 8))
         left = tk.Frame(body, bg="#0f1720")
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        right = tk.Frame(body, bg="#0f1720", width=360)
+        right = tk.Frame(body, bg="#0f1720", width=440)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
         right.pack_propagate(False)
 
@@ -1194,7 +1194,7 @@ class App(tk.Tk):
         body.pack(fill=tk.BOTH, expand=True, padx=24, pady=(0, 8))
         left = tk.Frame(body, bg="#0f1720")
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        right = tk.Frame(body, bg="#0f1720", width=360)
+        right = tk.Frame(body, bg="#0f1720", width=440)
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
         right.pack_propagate(False)
 
@@ -1370,9 +1370,9 @@ class App(tk.Tk):
 
     def _path_row(self, parent, label, var, cmd, row):
         tk.Label(parent, text=label, bg="#152231", fg="#e8f3f8").grid(row=row, column=0, padx=6, pady=4, sticky="w")
-        ttk.Entry(parent, textvariable=var, width=54).grid(row=row, column=1, padx=6, pady=4, sticky="ew")
+        ttk.Entry(parent, textvariable=var, width=42).grid(row=row, column=1, padx=6, pady=4, sticky="w")
         ttk.Button(parent, text="选择", command=cmd).grid(row=row, column=2, padx=6, pady=4)
-        parent.grid_columnconfigure(1, weight=1)
+        parent.grid_columnconfigure(1, weight=0)
 
     def _create_remote_page(self):
         p = self.make_page("remote")
