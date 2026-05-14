@@ -678,6 +678,37 @@ class RemoteClient:
             return
         raise RuntimeError(f"当前远程方式 {mode} 不支持自动上传。请切换为 内置 SFTP 或 WinSCP。")
 
+    def delete_remote_backup(self, remote_backup_file: str) -> None:
+        remote_backup_file = str(remote_backup_file or "").strip()
+        if not remote_backup_file:
+            return
+        backup_name = self._validate_remote_backup_delete_name(remote_backup_file)
+        mode = self.cfg.remoteMode
+        if mode == "builtin_sftp":
+            self._builtin_sftp_delete_backup(backup_name)
+            return
+        if mode == "winscp":
+            self._winscp_delete_backup(backup_name)
+            return
+        raise RuntimeError(f"当前远程方式 {mode} 不支持自动删除服务器备份。请切换为 内置 SFTP 或 WinSCP。")
+
+    def _validate_remote_backup_delete_name(self, remote_backup_file: str) -> str:
+        normalized = remote_backup_file.replace("\\", "/").strip()
+        remote_dir = self.cfg.remoteDir.rstrip("/") + "/"
+        if "/" in normalized and not normalized.startswith(remote_dir):
+            raise RuntimeError(f"拒绝删除非当前远程目录下的文件：{remote_backup_file}")
+
+        backup_name = Path(normalized).name
+        suffix = re.escape(Path(self.cfg.remoteFile).suffix or ".map")
+        backup_pattern = rf"\d+-\d+(?:_\d+-\d+)*-before{suffix}"
+        if (
+            not backup_name
+            or backup_name == self.cfg.remoteFile
+            or not re.fullmatch(backup_pattern, backup_name)
+        ):
+            raise RuntimeError(f"拒绝删除非本程序服务器备份文件：{remote_backup_file}")
+        return backup_name
+
     def _paramiko_connect(self):
         try:
             import paramiko  # type: ignore
@@ -744,6 +775,18 @@ class RemoteClient:
         sftp.close()
         client.close()
         self.log("上传完成。")
+
+    def _builtin_sftp_delete_backup(self, backup_name: str) -> None:
+        client = self._paramiko_connect()
+        sftp = client.open_sftp()
+        remote_path = self.cfg.remoteDir.rstrip("/") + "/" + backup_name
+        self.log(f"删除服务器备份：{remote_path}")
+        try:
+            sftp.remove(remote_path)
+        finally:
+            sftp.close()
+            client.close()
+        self.log("服务器备份已删除。")
 
     # ---- WinSCP 备用 ----
     def _builtin_sftp_backup_remote(self, backup_stem: str) -> str:
@@ -845,6 +888,15 @@ class RemoteClient:
             f'ls "{self.cfg.remoteFile}"',
         ]
         self._run_winscp_script(cmds)
+
+    def _winscp_delete_backup(self, backup_name: str) -> None:
+        cmds = [
+            f'cd "{self.cfg.remoteDir}"',
+            f'rm "{backup_name}"',
+        ]
+        self.log(f"删除服务器备份：{self.cfg.remoteDir.rstrip('/')}/{backup_name}")
+        self._run_winscp_script(cmds)
+        self.log("服务器备份已删除。")
 
     # ---- 第三方工具打开：全部带工作目录 ----
     def _open_exe_from_dir(self, base_dir: str, names: List[str], tool_name: str) -> None:
@@ -2073,21 +2125,29 @@ class App(tk.Tk):
             self.save_settings_no_popup()
             marker = DIRS["backup"] / "last_backup.json"
             latest: Optional[Path] = None
+            remote_backup_file = ""
             if marker.exists():
                 try:
                     meta = json.loads(marker.read_text(encoding="utf-8"))
                     backup_path = Path(str(meta.get("backup_file", "")))
                     if backup_path.exists():
                         latest = backup_path
+                    remote_backup_file = str(meta.get("remote_backup_file", "")).strip()
                 except Exception:
                     latest = None
+                    remote_backup_file = ""
             if latest is None:
                 backups = sorted(DIRS["backup"].glob("*.map"), key=lambda p: p.stat().st_mtime, reverse=True)
                 if not backups:
                     raise RuntimeError("backup 目录没有备份 MAP，无法恢复。")
                 latest = backups[0]
             self.log(f"使用最近备份恢复：{latest}")
-            RemoteClient(self.cfg, self.log).upload(latest)
+            client = RemoteClient(self.cfg, self.log)
+            client.upload(latest)
+            if remote_backup_file:
+                client.delete_remote_backup(remote_backup_file)
+            else:
+                self.log("未找到服务器备份记录，跳过删除服务器备份。")
         self.run_bg("取消仿真 / 恢复备份", work)
 
     def run_tool_action(self, kind: str):
