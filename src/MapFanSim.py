@@ -2627,7 +2627,9 @@ def list_all_fans() -> List[str]:  # type: ignore[override]
     try:
         maps = load_legacy_device_maps()
         if maps:
-            return sorted(maps.keys())
+            def fan_sort_key(name: str):
+                return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", name)]
+            return sorted(maps.keys(), key=fan_sort_key)
     except Exception:
         pass
     return LEGACY_FANS[:]
