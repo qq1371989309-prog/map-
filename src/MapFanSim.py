@@ -643,7 +643,6 @@ def run_local_simulation(
     # 同步一份到 update，便于直接上传
     update_map = farm_runtime_path("update", cfg.remoteFile)
     shutil.copy2(output_map, update_map)
-
     report_csv = farm_runtime_path("reports", f"replace_report_{now_stamp()}.csv")
     with report_csv.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
@@ -2083,7 +2082,9 @@ class App(tk.Tk):
                 local_s = str(maps[0])
         if not local_s:
             raise RuntimeError("请选择本机故障 MAP，或把 .map 文件放到 input_maps。")
-        return Path(local_s), Path(target_s) if target_s else None
+        local_map = validate_current_farm_map_path(Path(local_s), "本机故障 MAP")
+        target_map = validate_current_farm_map_path(Path(target_s), "目标正常 MAP") if target_s else None
+        return local_map, target_map
 
     def save_settings_no_popup(self):
         try:
@@ -2118,7 +2119,7 @@ class App(tk.Tk):
             save_extra_rules_text(extra)
             maps = sorted(farm_runtime_dir("input_maps").glob("*.map"))
             target_s = self.target_map_var.get().strip() if hasattr(self, "target_map_var") else self.cfg.targetMapPath
-            target_map = Path(target_s) if target_s else None
+            target_map = validate_current_farm_map_path(Path(target_s), "目标正常 MAP") if target_s else None
             if maps:
                 total_changes = 0
                 self.log(f"本地批量替换：发现 {len(maps)} 个 .map 文件。")
@@ -2467,16 +2468,31 @@ def _safe_output_part(value: str, fallback: str) -> str:
     return text or fallback
 
 
+def _enabled_relation_list(relations: List[Relation]) -> List[Relation]:
+    return [r for r in relations if r.enabled and r.local_fan and r.target_fan]
+
+
+def _relation_output_label(rel: Relation) -> str:
+    local = _safe_output_part(rel.local_fan, "local")
+    target = _safe_output_part(rel.target_fan, "target")
+    return f"{local}_from_{target}"
+
+
+def _relations_output_label(relations: List[Relation]) -> str:
+    enabled = _enabled_relation_list(relations)
+    labels = [_relation_output_label(r) for r in enabled[:3]]
+    if not labels:
+        return "no_relation"
+    if len(enabled) > 3:
+        labels.append(f"{len(enabled)}_pairs")
+    return "__".join(labels)
+
+
 def _legacy_output_stem(file_name: str, relations: List[Relation], stamp: str) -> str:
     b = _safe_output_part(Path(file_name).stem, "map")
-    enabled = [r for r in relations if r.enabled and r.local_fan and r.target_fan]
-    if len(enabled) == 1:
-        local = _safe_output_part(enabled[0].local_fan, "local")
-        target = _safe_output_part(enabled[0].target_fan, "target")
-        relation = f"{local}_from_{target}"
-    else:
-        relation = f"{len(enabled)}_pairs"
-    return f"{b}__{relation}__{stamp}"
+    farm = _safe_output_part(get_current_wind_farm(), "wind_farm")
+    relation = _relations_output_label(relations)
+    return f"{b}__{farm}__{relation}__{stamp}"
 
 
 def _legacy_output_name(file_name: str, relations: List[Relation], stamp: Optional[str] = None) -> str:
@@ -2487,6 +2503,10 @@ def _legacy_report_name(file_name: str, relations: List[Relation], stamp: Option
     return f"{_legacy_output_stem(file_name, relations, stamp or now_stamp())}__report.csv"
 
 
+def _legacy_summary_name(file_name: str, relations: List[Relation], stamp: Optional[str] = None) -> str:
+    return f"{_legacy_output_stem(file_name, relations, stamp or now_stamp())}__summary.txt"
+
+
 def run_local_simulation(cfg: Config, relations: List[Relation], local_map: Path, target_map: Optional[Path], extra_rules_text: str, log_func) -> Tuple[Path, Path, int]:  # type: ignore[override]
     if not local_map.exists():
         raise RuntimeError(f"本机 MAP 不存在：{local_map}")
@@ -2494,11 +2514,34 @@ def run_local_simulation(cfg: Config, relations: List[Relation], local_map: Path
     backup = backup_original_name(local_map) if local_map.name == cfg.remoteFile else backup_file(local_map, "local_before_sim")
     log_func(f"已备份本机 MAP：{backup}")
     stamp = now_stamp()
+    enabled = _enabled_relation_list(relations)
+    log_func(f"当前风场：{get_current_wind_farm()}")
+    log_func(f"本次仿真关系：{len(enabled)} 组")
+    for idx, rel in enumerate(enabled, 1):
+        note = f"，说明：{rel.note}" if rel.note else ""
+        log_func(f"  {idx}. {rel.local_fan} -> {rel.target_fan}{note}")
     output_map = farm_runtime_path("output_maps", _legacy_output_name(local_map.name, relations, stamp))
     report_csv = farm_runtime_path("reports", _legacy_report_name(local_map.name, relations, stamp))
+    summary_txt = farm_runtime_path("reports", _legacy_summary_name(local_map.name, relations, stamp))
     changes = _legacy_process_one_file(cfg, relations, local_map, target_map, output_map, report_csv, log_func)
     update_map = farm_runtime_path("update", cfg.remoteFile)
     shutil.copy2(output_map, update_map)
+    summary_lines = [
+        f"风场: {get_current_wind_farm()}",
+        f"输入MAP: {local_map}",
+        f"目标MAP: {target_map if target_map else local_map}",
+        f"输出MAP: {output_map}",
+        f"待上传MAP: {update_map}",
+        f"替换报告: {report_csv}",
+        f"替换条数: {changes}",
+        "仿真关系:",
+    ]
+    summary_lines.extend(
+        f"{idx}. {rel.local_fan} -> {rel.target_fan}" + (f" | {rel.note}" if rel.note else "")
+        for idx, rel in enumerate(enabled, 1)
+    )
+    summary_txt.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+    log_func(f"生成仿真摘要：{summary_txt}")
     log_func(f"生成仿真 MAP：{output_map}")
     log_func(f"同步待上传 MAP：{update_map}")
     log_func(f"生成替换报告：{report_csv}")
@@ -2560,6 +2603,20 @@ def get_farm_dir(name: Optional[str] = None) -> Path:
 
 def get_current_farm_dir() -> Path:
     return get_farm_dir(get_current_wind_farm())
+
+
+def validate_current_farm_map_path(path: Path, label: str) -> Path:
+    path = path.expanduser()
+    allowed = farm_runtime_dir("input_maps").resolve()
+    try:
+        resolved = path.resolve()
+    except Exception:
+        resolved = path
+    try:
+        resolved.relative_to(allowed)
+    except ValueError:
+        raise RuntimeError(f"{label} 不在当前风场目录：{allowed}")
+    return resolved
 
 
 def farm_device_maps_path(name: Optional[str] = None) -> Path:
@@ -2918,6 +2975,7 @@ def _default_rule_profile(name: Optional[str] = None) -> Dict[str, Any]:
             "fanColumn": 0,
             "addressStartColumn": 1,
             "addressColumn": 1,
+            "excludeTailAddressCount": 0,
             "skipIfRowContains": ["IEMP"]
         },
         "mapParser": {
@@ -3044,6 +3102,7 @@ def _parse_device_maps_rows(rows_by_sheet: Dict[str, List[List[str]]], profile: 
     addr_start = _as_int(fmt.get("addressStartColumn", 1), 1)
     addr_col = _as_int(fmt.get("addressColumn", 1), 1)
     sheet_names = [str(x) for x in _as_list(fmt.get("sheetNames", ["*"])) if str(x).strip()]
+    exclude_tail = max(0, _as_int(fmt.get("excludeTailAddressCount", 0), 0))
 
     def sheet_allowed(sn: str) -> bool:
         if not sheet_names or "*" in sheet_names:
@@ -3083,6 +3142,8 @@ def _parse_device_maps_rows(rows_by_sheet: Dict[str, List[List[str]]], profile: 
                     maps.setdefault(fan, []).append(addr)
             else:
                 raise RuntimeError(f"rule_profile.json 中 deviceMapFormat.type 不支持：{typ}")
+    if exclude_tail:
+        maps = {k: v[:-exclude_tail] if len(v) > exclude_tail else [] for k, v in maps.items()}
     return {k: v for k, v in maps.items() if v}
 
 

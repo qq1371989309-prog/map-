@@ -12,6 +12,7 @@
     "fanColumn": 0,
     "addressStartColumn": 1,
     "addressColumn": 1,
+    "excludeTailAddressCount": 2,
     "skipIfRowContains": [
       "IEMP"
     ]
