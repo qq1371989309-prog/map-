@@ -101,6 +101,39 @@ def safe_open_folder(path: Path) -> None:
         subprocess.Popen(["xdg-open", str(path)])
 
 
+FARM_SCOPED_DIR_KEYS = ("input_maps", "output_maps", "download", "update", "backup", "reports", "logs")
+
+
+def _safe_folder_part(value: str, fallback: str = "default") -> str:
+    text = str(value or "").strip()
+    text = re.sub(r'[\\/:*?"<>|]+', "_", text)
+    text = re.sub(r"\s+", "_", text)
+    text = text.strip("._ ")
+    return text or fallback
+
+
+def farm_runtime_dir(key: str, farm: Optional[str] = None) -> Path:
+    if key not in DIRS:
+        raise KeyError(key)
+    farm_name = _safe_folder_part(farm or get_current_wind_farm(), DEFAULT_WIND_FARM)
+    path = DIRS[key] / farm_name
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def farm_runtime_path(key: str, *parts: str, farm: Optional[str] = None) -> Path:
+    return farm_runtime_dir(key, farm=farm).joinpath(*parts)
+
+
+def open_farm_runtime_folder(key: str) -> None:
+    safe_open_folder(farm_runtime_dir(key))
+
+
+def ensure_farm_runtime_dirs(farm: Optional[str] = None) -> None:
+    for key in FARM_SCOPED_DIR_KEYS:
+        farm_runtime_dir(key, farm=farm)
+
+
 def csv_escape(value: Any) -> str:
     s = "" if value is None else str(value)
     return s
@@ -377,15 +410,14 @@ def save_extra_rules_text(text: str) -> None:
 
 
 def backup_file(src: Path, reason: str) -> Path:
-    DIRS["backup"].mkdir(parents=True, exist_ok=True)
-    dst = DIRS["backup"] / f"{src.stem}_{reason}_{now_stamp()}{src.suffix}"
+    backup_dir = farm_runtime_dir("backup")
+    dst = backup_dir / f"{src.stem}_{reason}_{now_stamp()}{src.suffix}"
     shutil.copy2(src, dst)
     return dst
 
 
 def backup_original_name(src: Path) -> Path:
-    DIRS["backup"].mkdir(parents=True, exist_ok=True)
-    dst = DIRS["backup"] / src.name
+    dst = farm_runtime_path("backup", src.name)
     shutil.copy2(src, dst)
     return dst
 
@@ -605,14 +637,14 @@ def run_local_simulation(
         ))
 
     out_name = f"{local_map.stem}_sim_{now_stamp()}{local_map.suffix}"
-    output_map = DIRS["output_maps"] / out_name
+    output_map = farm_runtime_path("output_maps", out_name)
     write_text_lines(output_map, local_lines, enc)
 
     # 同步一份到 update，便于直接上传
-    update_map = DIRS["update"] / cfg.remoteFile
+    update_map = farm_runtime_path("update", cfg.remoteFile)
     shutil.copy2(output_map, update_map)
 
-    report_csv = DIRS["reports"] / f"replace_report_{now_stamp()}.csv"
+    report_csv = farm_runtime_path("reports", f"replace_report_{now_stamp()}.csv")
     with report_csv.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
         w.writerow(["仿真关系", "本机故障风机", "目标正常风机", "本机行号", "目标行号", "地址", "col2", "col3", "旧值", "新值", "是否变化", "说明", "来源"])
@@ -755,7 +787,7 @@ class RemoteClient:
         client = self._paramiko_connect()
         sftp = client.open_sftp()
         remote_path = self.cfg.remoteDir.rstrip("/") + "/" + self.cfg.remoteFile
-        local_path = DIRS["download"] / self.cfg.remoteFile
+        local_path = farm_runtime_path("download", self.cfg.remoteFile)
         self.log(f"下载：{remote_path} -> {local_path}")
         sftp.get(remote_path, str(local_path))
         sftp.close()
@@ -836,8 +868,8 @@ class RemoteClient:
 
     def _run_winscp_script(self, commands: List[str]) -> None:
         exe = self._find_winscp_com()
-        script_path = DIRS["logs"] / f"winscp_script_{now_stamp()}.txt"
-        log_path = DIRS["logs"] / f"winscp_{now_stamp()}.log"
+        script_path = farm_runtime_path("logs", f"winscp_script_{now_stamp()}.txt")
+        log_path = farm_runtime_path("logs", f"winscp_{now_stamp()}.log")
         script_text = "\n".join([self._winscp_open_cmd(), "option batch abort", "option confirm off"] + commands + ["exit", ""]) 
         script_path.write_text(script_text, encoding="utf-8")
         cmd = [str(exe), f"/script={script_path}", f"/log={log_path}", "/ini=nul"]
@@ -860,7 +892,7 @@ class RemoteClient:
         self.log("WinSCP 测试成功。")
 
     def _winscp_download(self) -> Path:
-        local_path = DIRS["download"] / self.cfg.remoteFile
+        local_path = farm_runtime_path("download", self.cfg.remoteFile)
         cmds = [f'cd "{self.cfg.remoteDir}"', f'get "{self.cfg.remoteFile}" "{local_path}"']
         self._run_winscp_script(cmds)
         return local_path
@@ -868,7 +900,7 @@ class RemoteClient:
     def _winscp_backup_remote(self, backup_stem: str) -> str:
         suffix = Path(self.cfg.remoteFile).suffix
         backup_name = re.sub(r"[^0-9A-Za-z_.-]+", "_", backup_stem) + suffix
-        local_backup = DIRS["logs"] / self.cfg.remoteFile
+        local_backup = farm_runtime_path("logs", self.cfg.remoteFile)
         cmds = [
             f'cd "{self.cfg.remoteDir}"',
             f'get "{self.cfg.remoteFile}" "{local_backup}"',
@@ -951,6 +983,7 @@ class App(tk.Tk):
         self.relation_trees = []
         self.relation_pick_combos = []
         self.relation_listboxes = []
+        self.fan_combos = []
         self.relation_manager = None
         self.relation_manager_listbox = None
         self.relation_count_vars = []
@@ -1071,6 +1104,39 @@ class App(tk.Tk):
         lf = tk.LabelFrame(parent, text=title, bg="#152231", fg="#9fe4ff", font=("Microsoft YaHei UI", 11, "bold"), padx=12, pady=10, bd=1, relief=tk.GROOVE)
         return lf
 
+    def sync_fan_inputs_to_current_farm(self, fans: Optional[List[str]] = None):
+        fans = fans if fans is not None else list_all_fans()
+        state = "readonly" if fans else "normal"
+        for combo in getattr(self, "fan_combos", []):
+            try:
+                if combo.winfo_exists():
+                    combo.configure(values=fans, state=state)
+            except Exception:
+                pass
+        if not fans:
+            return
+        if hasattr(self, "local_fan_var"):
+            lf = normalize_fan_name(self.local_fan_var.get())
+            if lf not in fans:
+                self.local_fan_var.set(fans[0])
+        if hasattr(self, "target_fan_var"):
+            tf = normalize_fan_name(self.target_fan_var.get())
+            if tf not in fans:
+                self.target_fan_var.set(fans[1] if len(fans) > 1 else fans[0])
+
+    def relation_missing_fans(self, lf: str, tf: str) -> List[str]:
+        try:
+            maps = load_legacy_device_maps()
+        except Exception:
+            return []
+        if not maps:
+            return []
+        missing = []
+        for fan in (lf, tf):
+            if fan and fan not in maps and fan not in missing:
+                missing.append(fan)
+        return missing
+
     def _create_farm_bar(self, parent):
         farm_card = self.card(parent, "风场")
         farm_card.pack(fill=tk.X, padx=24, pady=(0, 10))
@@ -1086,21 +1152,23 @@ class App(tk.Tk):
         ttk.Label(farm_card, textvariable=self.wind_farm_info_var, style="Panel.TLabel").pack(side=tk.LEFT, padx=14, pady=8)
 
     def _create_relation_panel(self, parent):
+        fans = list_all_fans()
         if not hasattr(self, "local_fan_var"):
-            self.local_fan_var = tk.StringVar(value="F1-01FJ")
+            self.local_fan_var = tk.StringVar(value=fans[0] if fans else "")
         if not hasattr(self, "target_fan_var"):
-            self.target_fan_var = tk.StringVar(value="F1-02FJ")
+            self.target_fan_var = tk.StringVar(value=fans[1] if len(fans) > 1 else (fans[0] if fans else ""))
         c = self.card(parent, "仿真关系")
         c.pack(fill=tk.BOTH, expand=True)
-        fans = list_all_fans()
         form = tk.Frame(c, bg="#152231")
         form.pack(fill=tk.X)
         tk.Label(form, text="本机故障风机", bg="#152231", fg="#e8f3f8").grid(row=0, column=0, padx=6, pady=8, sticky="w")
         tk.Label(form, text="目标正常风机", bg="#152231", fg="#e8f3f8").grid(row=1, column=0, padx=6, pady=4, sticky="w")
-        self.local_fan_combo = ttk.Combobox(form, textvariable=self.local_fan_var, values=fans, width=22)
+        self.local_fan_combo = ttk.Combobox(form, textvariable=self.local_fan_var, values=fans, width=22, state="readonly" if fans else "normal")
         self.local_fan_combo.grid(row=0, column=1, padx=6, pady=8, sticky="w")
-        self.target_fan_combo = ttk.Combobox(form, textvariable=self.target_fan_var, values=fans, width=22)
+        self.target_fan_combo = ttk.Combobox(form, textvariable=self.target_fan_var, values=fans, width=22, state="readonly" if fans else "normal")
         self.target_fan_combo.grid(row=1, column=1, padx=6, pady=4, sticky="w")
+        self.fan_combos.extend([self.local_fan_combo, self.target_fan_combo])
+        self.sync_fan_inputs_to_current_farm(fans)
         ttk.Button(form, text="添加关系", command=self.add_relation).grid(row=0, column=2, padx=(16, 6), pady=8, sticky="ew")
         ttk.Button(form, text="删除当前关系", command=self.delete_current_relation).grid(row=1, column=2, padx=(16, 6), pady=4, sticky="ew")
         pick = ttk.Combobox(form, textvariable=self.relation_pick_var, values=[], width=44, state="readonly")
@@ -1180,7 +1248,7 @@ class App(tk.Tk):
         log_btns = tk.Frame(log_card, bg="#152231")
         log_btns.pack(fill=tk.X, pady=(8, 0))
         ttk.Button(log_btns, text="清空日志", command=self.clear_all_logs).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(log_btns, text="打开 logs", command=lambda: safe_open_folder(DIRS["logs"])).pack(side=tk.LEFT, padx=6)
+        ttk.Button(log_btns, text="打开 logs", command=lambda: open_farm_runtime_folder("logs")).pack(side=tk.LEFT, padx=6)
 
     def _create_map_file_panel(self, parent, hint):
         if not hasattr(self, "local_map_var"):
@@ -1217,11 +1285,11 @@ class App(tk.Tk):
         c.pack(fill=tk.X, pady=(0, 8))
         self._grid_buttons(c, [
             ("本地批量替换", self.task_local_sim, True),
-            ("input_maps", lambda: safe_open_folder(DIRS["input_maps"]), False),
-            ("output_maps", lambda: safe_open_folder(DIRS["output_maps"]), False),
-            ("reports", lambda: safe_open_folder(DIRS["reports"]), False),
-            ("update", lambda: safe_open_folder(DIRS["update"]), False),
-            ("logs", lambda: safe_open_folder(DIRS["logs"]), False),
+            ("input_maps", lambda: open_farm_runtime_folder("input_maps"), False),
+            ("output_maps", lambda: open_farm_runtime_folder("output_maps"), False),
+            ("reports", lambda: open_farm_runtime_folder("reports"), False),
+            ("update", lambda: open_farm_runtime_folder("update"), False),
+            ("logs", lambda: open_farm_runtime_folder("logs"), False),
         ])
 
         tools = self.card(right, "第三方工具")
@@ -1261,17 +1329,17 @@ class App(tk.Tk):
             ("上传 update", self.task_upload_latest_update, False),
             ("恢复最近备份", self.task_restore_backup, False),
             ("OMTG", lambda: self.run_tool_action("omtg"), False),
-            ("backup", lambda: safe_open_folder(DIRS["backup"]), False),
+            ("backup", lambda: open_farm_runtime_folder("backup"), False),
         ])
 
         dirs = self.card(right, "云端目录")
         dirs.pack(fill=tk.X)
         self._grid_buttons(dirs, [
-            ("download", lambda: safe_open_folder(DIRS["download"]), False),
-            ("update", lambda: safe_open_folder(DIRS["update"]), False),
-            ("backup", lambda: safe_open_folder(DIRS["backup"]), False),
-            ("reports", lambda: safe_open_folder(DIRS["reports"]), False),
-            ("logs", lambda: safe_open_folder(DIRS["logs"]), False),
+            ("download", lambda: open_farm_runtime_folder("download"), False),
+            ("update", lambda: open_farm_runtime_folder("update"), False),
+            ("backup", lambda: open_farm_runtime_folder("backup"), False),
+            ("reports", lambda: open_farm_runtime_folder("reports"), False),
+            ("logs", lambda: open_farm_runtime_folder("logs"), False),
         ])
 
     def _create_home_page(self):
@@ -1301,7 +1369,7 @@ class App(tk.Tk):
         log_btns = tk.Frame(log_card, bg="#152231")
         log_btns.pack(fill=tk.X, pady=(8, 0))
         ttk.Button(log_btns, text="清空日志", command=lambda: self.log_text.delete("1.0", tk.END)).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(log_btns, text="打开 logs", command=lambda: safe_open_folder(DIRS["logs"])).pack(side=tk.LEFT, padx=6)
+        ttk.Button(log_btns, text="打开 logs", command=lambda: open_farm_runtime_folder("logs")).pack(side=tk.LEFT, padx=6)
 
         body = tk.Frame(p, bg="#0f1720")
         body.pack(fill=tk.BOTH, expand=True, padx=24, pady=(0, 8))
@@ -1328,12 +1396,14 @@ class App(tk.Tk):
         form.pack(fill=tk.X)
         tk.Label(form, text="本机故障风机", bg="#152231", fg="#e8f3f8").grid(row=0, column=0, padx=6, pady=8, sticky="w")
         tk.Label(form, text="目标正常风机", bg="#152231", fg="#e8f3f8").grid(row=1, column=0, padx=6, pady=4, sticky="w")
-        self.local_fan_var = tk.StringVar(value="F1-01FJ")
-        self.target_fan_var = tk.StringVar(value="F1-02FJ")
-        self.local_fan_combo = ttk.Combobox(form, textvariable=self.local_fan_var, values=fans, width=22)
+        self.local_fan_var = tk.StringVar(value=fans[0] if fans else "")
+        self.target_fan_var = tk.StringVar(value=fans[1] if len(fans) > 1 else (fans[0] if fans else ""))
+        self.local_fan_combo = ttk.Combobox(form, textvariable=self.local_fan_var, values=fans, width=22, state="readonly" if fans else "normal")
         self.local_fan_combo.grid(row=0, column=1, padx=6, pady=8, sticky="w")
-        self.target_fan_combo = ttk.Combobox(form, textvariable=self.target_fan_var, values=fans, width=22)
+        self.target_fan_combo = ttk.Combobox(form, textvariable=self.target_fan_var, values=fans, width=22, state="readonly" if fans else "normal")
         self.target_fan_combo.grid(row=1, column=1, padx=6, pady=4, sticky="w")
+        self.fan_combos.extend([self.local_fan_combo, self.target_fan_combo])
+        self.sync_fan_inputs_to_current_farm(fans)
         ttk.Button(form, text="添加关系", command=self.add_relation).grid(row=0, column=2, padx=(16, 6), pady=8, sticky="ew")
         ttk.Button(form, text="删除选中", command=self.delete_selected_relation).grid(row=1, column=2, padx=(16, 6), pady=4, sticky="ew")
         form.grid_columnconfigure(3, weight=1)
@@ -1356,10 +1426,10 @@ class App(tk.Tk):
         local_grid.pack(fill=tk.X)
         local_buttons = [
             ("本地批量替换", self.task_local_sim),
-            ("input_maps", lambda: safe_open_folder(DIRS["input_maps"])),
-            ("output_maps", lambda: safe_open_folder(DIRS["output_maps"])),
-            ("reports", lambda: safe_open_folder(DIRS["reports"])),
-            ("logs", lambda: safe_open_folder(DIRS["logs"])),
+            ("input_maps", lambda: open_farm_runtime_folder("input_maps")),
+            ("output_maps", lambda: open_farm_runtime_folder("output_maps")),
+            ("reports", lambda: open_farm_runtime_folder("reports")),
+            ("logs", lambda: open_farm_runtime_folder("logs")),
             ("FlashFXP", lambda: self.run_tool_action("flashfxp")),
             ("WinSCP", lambda: self.run_tool_action("winscp")),
             ("OMTG", lambda: self.run_tool_action("omtg")),
@@ -1383,9 +1453,9 @@ class App(tk.Tk):
             ("下载服务器 MAP", self.task_download),
             ("上传 update", self.task_upload_latest_update),
             ("恢复最近备份", self.task_restore_backup),
-            ("download", lambda: safe_open_folder(DIRS["download"])),
-            ("update", lambda: safe_open_folder(DIRS["update"])),
-            ("backup", lambda: safe_open_folder(DIRS["backup"])),
+            ("download", lambda: open_farm_runtime_folder("download")),
+            ("update", lambda: open_farm_runtime_folder("update")),
+            ("backup", lambda: open_farm_runtime_folder("backup")),
         ]
         for idx, (text, cmd) in enumerate(cloud_buttons):
             style = "Accent.TButton" if idx == 0 else "TButton"
@@ -1416,8 +1486,8 @@ class App(tk.Tk):
         btns.pack(fill=tk.X, pady=8)
         ttk.Button(btns, text="保存额外项", command=self.save_extra_text).pack(side=tk.LEFT, padx=5)
         ttk.Button(btns, text="本地批量替换", style="Accent.TButton", command=self.task_local_sim).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btns, text="打开 input_maps", command=lambda: safe_open_folder(DIRS["input_maps"])).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btns, text="打开 output_maps", command=lambda: safe_open_folder(DIRS["output_maps"])).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="打开 input_maps", command=lambda: open_farm_runtime_folder("input_maps")).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btns, text="打开 output_maps", command=lambda: open_farm_runtime_folder("output_maps")).pack(side=tk.LEFT, padx=5)
 
     def _path_row(self, parent, label, var, cmd, row):
         tk.Label(parent, text=label, bg="#152231", fg="#e8f3f8").grid(row=row, column=0, padx=6, pady=4, sticky="w")
@@ -1442,7 +1512,7 @@ class App(tk.Tk):
         c2 = self.card(p, "目录快捷入口")
         c2.pack(fill=tk.X, padx=24, pady=8)
         for name, d in [("download", "download"), ("update", "update"), ("backup", "backup"), ("reports", "reports"), ("logs", "logs")]:
-            ttk.Button(c2, text=f"打开 {name}", command=lambda x=d: safe_open_folder(DIRS[x])).pack(side=tk.LEFT, padx=8, pady=14)
+            ttk.Button(c2, text=f"打开 {name}", command=lambda x=d: open_farm_runtime_folder(x)).pack(side=tk.LEFT, padx=8, pady=14)
 
     def _create_tools_page(self):
         p = self.make_page("tools")
@@ -1565,7 +1635,7 @@ class App(tk.Tk):
         bottom = tk.Frame(p, bg="#0f1720")
         bottom.pack(fill=tk.X, padx=24, pady=(0, 12))
         ttk.Button(bottom, text="清空界面日志", command=lambda: self.log_text.delete("1.0", tk.END)).pack(side=tk.LEFT, padx=5)
-        ttk.Button(bottom, text="打开 logs 目录", command=lambda: safe_open_folder(DIRS["logs"])).pack(side=tk.LEFT, padx=5)
+        ttk.Button(bottom, text="打开 logs 目录", command=lambda: open_farm_runtime_folder("logs")).pack(side=tk.LEFT, padx=5)
 
     def _create_help_page(self):
         p = self.make_page("help")
@@ -1631,7 +1701,7 @@ class App(tk.Tk):
             except Exception:
                 pass
         try:
-            with (DIRS["logs"] / f"run_{_dt.datetime.now().strftime('%Y%m%d')}.log").open("a", encoding="utf-8") as f:
+            with farm_runtime_path("logs", f"run_{_dt.datetime.now().strftime('%Y%m%d')}.log").open("a", encoding="utf-8") as f:
                 f.write(line)
         except Exception:
             pass
@@ -1683,14 +1753,14 @@ class App(tk.Tk):
             var.set(d)
 
     def choose_local_map(self):
-        p = filedialog.askopenfilename(initialdir=str(DIRS["input_maps"]), title="选择本机故障 MAP", filetypes=[("MAP 文件", "*.map"), ("所有文件", "*.*")])
+        p = filedialog.askopenfilename(initialdir=str(farm_runtime_dir("input_maps")), title="选择本机故障 MAP", filetypes=[("MAP 文件", "*.map"), ("所有文件", "*.*")])
         if p:
             self.local_map_var.set(p)
             self.cfg.localMapPath = p
             save_config(self.cfg)
 
     def choose_target_map(self):
-        p = filedialog.askopenfilename(initialdir=str(DIRS["input_maps"]), title="选择目标正常 MAP", filetypes=[("MAP 文件", "*.map"), ("所有文件", "*.*")])
+        p = filedialog.askopenfilename(initialdir=str(farm_runtime_dir("input_maps")), title="选择目标正常 MAP", filetypes=[("MAP 文件", "*.map"), ("所有文件", "*.*")])
         if p:
             self.target_map_var.set(p)
             self.cfg.targetMapPath = p
@@ -1699,6 +1769,13 @@ class App(tk.Tk):
     def add_relation(self):
         lf = normalize_fan_name(self.local_fan_var.get())
         tf = normalize_fan_name(self.target_fan_var.get())
+        missing = self.relation_missing_fans(lf, tf)
+        if missing:
+            self.sync_fan_inputs_to_current_farm()
+            msg = f"当前风场“{get_current_wind_farm()}”没有风机：{'、'.join(missing)}。请从当前风场下拉列表重新选择。"
+            self.log(f"添加仿真关系失败：{msg}")
+            messagebox.showwarning("提示", msg)
+            return
         if lf == tf:
             messagebox.showwarning("提示", "本机故障风机和目标正常风机不能一样。")
             return
@@ -2001,7 +2078,7 @@ class App(tk.Tk):
         target_s = self.target_map_var.get().strip() if hasattr(self, "target_map_var") else self.cfg.targetMapPath
         if not local_s:
             # 尝试取 input_maps 里最新 map
-            maps = sorted(DIRS["input_maps"].glob("*.map"), key=lambda p: p.stat().st_mtime, reverse=True)
+            maps = sorted(farm_runtime_dir("input_maps").glob("*.map"), key=lambda p: p.stat().st_mtime, reverse=True)
             if maps:
                 local_s = str(maps[0])
         if not local_s:
@@ -2039,7 +2116,7 @@ class App(tk.Tk):
             save_relations_for_scope("local", relations)
             extra = self.extra_text.get("1.0", tk.END) if hasattr(self, "extra_text") else load_extra_rules_text()
             save_extra_rules_text(extra)
-            maps = sorted(DIRS["input_maps"].glob("*.map"))
+            maps = sorted(farm_runtime_dir("input_maps").glob("*.map"))
             target_s = self.target_map_var.get().strip() if hasattr(self, "target_map_var") else self.cfg.targetMapPath
             target_map = Path(target_s) if target_s else None
             if maps:
@@ -2073,10 +2150,10 @@ class App(tk.Tk):
         self.run_bg("下载服务器 MAP", work)
 
     def _latest_update_file(self) -> Path:
-        fixed = DIRS["update"] / self.cfg.remoteFile
+        fixed = farm_runtime_path("update", self.cfg.remoteFile)
         if fixed.exists():
             return fixed
-        maps = sorted(DIRS["update"].glob("*.map"), key=lambda p: p.stat().st_mtime, reverse=True)
+        maps = sorted(farm_runtime_dir("update").glob("*.map"), key=lambda p: p.stat().st_mtime, reverse=True)
         if not maps:
             raise RuntimeError("update 目录没有待上传 MAP。请先本地批量替换生成。")
         return maps[0]
@@ -2108,21 +2185,21 @@ class App(tk.Tk):
                 "backup_file": str(backup),
                 "pairs": [asdict(r) for r in relations],
             }
-            (DIRS["backup"] / "last_backup.json").write_text(json.dumps(backup_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+            farm_runtime_path("backup", "last_backup.json").write_text(json.dumps(backup_meta, ensure_ascii=False, indent=2), encoding="utf-8")
             self.log(f"一键仿真原始备份：{backup}")
             # 远程下载作为本机 MAP；如果目标 MAP 未指定，则同文件内部仿真
             self.cfg.localMapPath = str(downloaded)
             save_config(self.cfg)
             extra = self.extra_text.get("1.0", tk.END) if hasattr(self, "extra_text") else load_extra_rules_text()
             output, report, changes = run_local_simulation(self.cfg, relations, downloaded, Path(self.cfg.targetMapPath) if self.cfg.targetMapPath else None, extra, self.log)
-            upload_file = DIRS["update"] / self.cfg.remoteFile
+            upload_file = farm_runtime_path("update", self.cfg.remoteFile)
             client.upload(upload_file if upload_file.exists() else output)
         self.run_bg("一键仿真", work)
 
     def task_restore_backup(self):
         def work():
             self.save_settings_no_popup()
-            marker = DIRS["backup"] / "last_backup.json"
+            marker = farm_runtime_path("backup", "last_backup.json")
             latest: Optional[Path] = None
             remote_backup_file = ""
             if marker.exists():
@@ -2136,7 +2213,7 @@ class App(tk.Tk):
                     latest = None
                     remote_backup_file = ""
             if latest is None:
-                backups = sorted(DIRS["backup"].glob("*.map"), key=lambda p: p.stat().st_mtime, reverse=True)
+                backups = sorted(farm_runtime_dir("backup").glob("*.map"), key=lambda p: p.stat().st_mtime, reverse=True)
                 if not backups:
                     raise RuntimeError("backup 目录没有备份 MAP，无法恢复。")
                 latest = backups[0]
@@ -2382,20 +2459,32 @@ def _legacy_process_one_file(cfg: Config, relations: List[Relation], in_path: Pa
     return changed_count
 
 
-def _legacy_output_name(file_name: str, relations: List[Relation]) -> str:
-    b = Path(file_name).stem
-    enabled = [r for r in relations if r.enabled and r.local_fan and r.target_fan]
-    if len(enabled) == 1:
-        return f"{b}__{enabled[0].local_fan}_from_{enabled[0].target_fan}.map"
-    return f"{b}__{len(enabled)}_pairs.map"
+def _safe_output_part(value: str, fallback: str) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r'[\\/:*?"<>|]+', "_", text)
+    text = re.sub(r"\s+", "_", text)
+    text = text.strip("._ ")
+    return text or fallback
 
 
-def _legacy_report_name(file_name: str, relations: List[Relation]) -> str:
-    b = Path(file_name).stem
+def _legacy_output_stem(file_name: str, relations: List[Relation], stamp: str) -> str:
+    b = _safe_output_part(Path(file_name).stem, "map")
     enabled = [r for r in relations if r.enabled and r.local_fan and r.target_fan]
     if len(enabled) == 1:
-        return f"{b}__{enabled[0].local_fan}_from_{enabled[0].target_fan}__report.csv"
-    return f"{b}__{len(enabled)}_pairs__report.csv"
+        local = _safe_output_part(enabled[0].local_fan, "local")
+        target = _safe_output_part(enabled[0].target_fan, "target")
+        relation = f"{local}_from_{target}"
+    else:
+        relation = f"{len(enabled)}_pairs"
+    return f"{b}__{relation}__{stamp}"
+
+
+def _legacy_output_name(file_name: str, relations: List[Relation], stamp: Optional[str] = None) -> str:
+    return f"{_legacy_output_stem(file_name, relations, stamp or now_stamp())}.map"
+
+
+def _legacy_report_name(file_name: str, relations: List[Relation], stamp: Optional[str] = None) -> str:
+    return f"{_legacy_output_stem(file_name, relations, stamp or now_stamp())}__report.csv"
 
 
 def run_local_simulation(cfg: Config, relations: List[Relation], local_map: Path, target_map: Optional[Path], extra_rules_text: str, log_func) -> Tuple[Path, Path, int]:  # type: ignore[override]
@@ -2404,10 +2493,11 @@ def run_local_simulation(cfg: Config, relations: List[Relation], local_map: Path
     save_extra_rules_text(extra_rules_text)
     backup = backup_original_name(local_map) if local_map.name == cfg.remoteFile else backup_file(local_map, "local_before_sim")
     log_func(f"已备份本机 MAP：{backup}")
-    output_map = DIRS["output_maps"] / _legacy_output_name(local_map.name, relations)
-    report_csv = DIRS["reports"] / _legacy_report_name(local_map.name, relations)
+    stamp = now_stamp()
+    output_map = farm_runtime_path("output_maps", _legacy_output_name(local_map.name, relations, stamp))
+    report_csv = farm_runtime_path("reports", _legacy_report_name(local_map.name, relations, stamp))
     changes = _legacy_process_one_file(cfg, relations, local_map, target_map, output_map, report_csv, log_func)
-    update_map = DIRS["update"] / cfg.remoteFile
+    update_map = farm_runtime_path("update", cfg.remoteFile)
     shutil.copy2(output_map, update_map)
     log_func(f"生成仿真 MAP：{output_map}")
     log_func(f"同步待上传 MAP：{update_map}")
@@ -2459,8 +2549,9 @@ def get_current_wind_farm() -> str:
 def set_current_wind_farm(name: str) -> None:
     ensure_dirs()
     name = _safe_farm_name(name)
-    CURRENT_FARM_PATH.write_text(name, encoding="utf-8")
+    CURRENT_FARM_PATH.write_text(name + "\n", encoding="utf-8")
     ensure_wind_farm_profile(name)
+    ensure_farm_runtime_dirs(name)
 
 
 def get_farm_dir(name: Optional[str] = None) -> Path:
@@ -2526,6 +2617,7 @@ def ensure_default_files() -> None:  # type: ignore[override]
     ensure_dirs()
     ensure_wind_farm_profile(DEFAULT_WIND_FARM)
     ensure_wind_farm_profile(get_current_wind_farm())
+    ensure_farm_runtime_dirs(get_current_wind_farm())
     if not DEVICE_MAPS_PATH.exists() and farm_device_maps_path().exists():
         shutil.copy2(farm_device_maps_path(), DEVICE_MAPS_PATH)
 
@@ -2575,6 +2667,27 @@ def save_relations_to_path(rels: List[Relation], path: Path) -> None:
             w.writerow(["1" if r.enabled else "0", r.local_fan, r.target_fan, r.note])
 
 
+def sanitize_relations_for_current_farm(rels: List[Relation]) -> Tuple[List[Relation], bool]:
+    try:
+        fans = set(load_legacy_device_maps().keys())
+    except Exception:
+        return rels, False
+    if not fans:
+        return rels, False
+
+    changed = False
+    farm = get_current_wind_farm()
+    for rel in rels:
+        rel.local_fan = normalize_fan_name(rel.local_fan)
+        rel.target_fan = normalize_fan_name(rel.target_fan)
+        missing = [fan for fan in (rel.local_fan, rel.target_fan) if fan and fan not in fans]
+        if rel.enabled and missing:
+            rel.enabled = False
+            rel.note = f"自动禁用：不属于当前风场 {farm}（{', '.join(missing)}）"
+            changed = True
+    return rels, changed
+
+
 def ensure_scoped_relations_file(scope: str) -> Path:
     ensure_wind_farm_profile(get_current_wind_farm())
     path = farm_relations_path_for_scope(scope)
@@ -2588,10 +2701,16 @@ def ensure_scoped_relations_file(scope: str) -> Path:
 
 
 def load_relations_for_scope(scope: str) -> List[Relation]:
-    return load_relations_from_path(ensure_scoped_relations_file(scope))
+    path = ensure_scoped_relations_file(scope)
+    rels = load_relations_from_path(path)
+    rels, changed = sanitize_relations_for_current_farm(rels)
+    if changed:
+        save_relations_to_path(rels, path)
+    return rels
 
 
 def save_relations_for_scope(scope: str, rels: List[Relation]) -> None:
+    rels, _ = sanitize_relations_for_current_farm(rels)
     save_relations_to_path(rels, ensure_scoped_relations_file(scope))
 
 
@@ -2728,15 +2847,7 @@ def _v5_switch_wind_farm(self):
     self.relations = self.cloud_relations if getattr(self, "relation_scope", "local") == "cloud" else self.local_relations
     self.refresh_relations_table()
     fans = list_all_fans()
-    if hasattr(self, "local_fan_combo"):
-        self.local_fan_combo.configure(values=fans)
-    if hasattr(self, "target_fan_combo"):
-        self.target_fan_combo.configure(values=fans)
-    if fans:
-        if self.local_fan_var.get() not in fans:
-            self.local_fan_var.set(fans[0])
-        if self.target_fan_var.get() not in fans:
-            self.target_fan_var.set(fans[1] if len(fans) > 1 else fans[0])
+    self.sync_fan_inputs_to_current_farm(fans)
     if hasattr(self, "extra_text"):
         self.extra_text.delete("1.0", tk.END)
         self.extra_text.insert("1.0", load_extra_rules_text())
@@ -2897,6 +3008,7 @@ def ensure_default_files() -> None:  # type: ignore[override]
     ensure_dirs()
     ensure_wind_farm_profile(DEFAULT_WIND_FARM)
     ensure_wind_farm_profile(get_current_wind_farm())
+    ensure_farm_runtime_dirs(get_current_wind_farm())
     if not DEVICE_MAPS_PATH.exists() and farm_device_maps_path().exists():
         shutil.copy2(farm_device_maps_path(), DEVICE_MAPS_PATH)
 
@@ -3220,15 +3332,7 @@ def _v6_switch_wind_farm(self):
     self.relations = self.cloud_relations if getattr(self, "relation_scope", "local") == "cloud" else self.local_relations
     self.refresh_relations_table()
     fans = list_all_fans()
-    if hasattr(self, "local_fan_combo"):
-        self.local_fan_combo.configure(values=fans)
-    if hasattr(self, "target_fan_combo"):
-        self.target_fan_combo.configure(values=fans)
-    if fans:
-        if self.local_fan_var.get() not in fans:
-            self.local_fan_var.set(fans[0])
-        if self.target_fan_var.get() not in fans:
-            self.target_fan_var.set(fans[1] if len(fans) > 1 else fans[0])
+    self.sync_fan_inputs_to_current_farm(fans)
     if hasattr(self, "extra_text"):
         self.extra_text.delete("1.0", tk.END)
         self.extra_text.insert("1.0", load_extra_rules_text())
