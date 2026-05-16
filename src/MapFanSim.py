@@ -243,7 +243,6 @@ def ensure_default_files() -> None:
         with RELATIONS_PATH.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["enabled", "local_fan", "target_fan", "note"])
-            w.writerow(["0", "F1-01FJ", "F1-02FJ", "示例：本机 F1-01FJ 仿真目标 F1-02FJ"])
     if not EXTRA_RULES_PATH.exists():
         EXTRA_RULES_PATH.write_text(
             "# 底部额外项，格式：本机行=目标行，例如：900=1280\n"
@@ -2231,7 +2230,6 @@ def ensure_default_files() -> None:  # type: ignore[override]
         with RELATIONS_PATH.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["enabled", "local_fan", "target_fan", "note"])
-            w.writerow(["0", "F1-01FJ", "F1-02FJ", "默认示例：本机 F1-01FJ 仿真目标 F1-02FJ"])
     if not EXTRA_RULES_PATH.exists():
         EXTRA_RULES_PATH.write_text(
             "# 可选额外行规则，正常现场不用改。\n"
@@ -2515,7 +2513,6 @@ def ensure_wind_farm_profile(name: Optional[str] = None) -> None:
         with rel.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["enabled", "local_fan", "target_fan", "note"])
-            w.writerow(["0", "F1-01FJ", "F1-02FJ", f"默认示例：{name} F1-01FJ 仿真 F1-02FJ"])
     if not extra.exists():
         extra.write_text(
             "# 当前风场额外行规则。正常现场不用改。\n"
@@ -2885,7 +2882,6 @@ def ensure_wind_farm_profile(name: Optional[str] = None) -> None:  # type: ignor
         with rel.open("w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(["enabled", "local_fan", "target_fan", "note"])
-            w.writerow(["0", "F1-01FJ", "F1-02FJ", f"默认示例：{name} F1-01FJ 仿真 F1-02FJ"])
     if not extra.exists():
         extra.write_text(
             "# 当前风场额外行规则。正常现场不用改。\n"
